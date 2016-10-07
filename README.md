@@ -5,28 +5,17 @@ Combine conservation related spatial data from many sources to create a single '
 # Installation
 
 ## Requirements
-- PostgreSQL 8.4+, PostGIS 2.0+ (tested on PostgreSQL 9.4, PostGIS 2.2.2)
+- PostgreSQL 8.4+, PostGIS 2.0+ (tested on PostgreSQL 9.5, PostGIS 2.2.2)
 - ogr2ogr (GDAL)
 - Python 2.7
 
 See `requirements.txt` for additional Python package requirements.
 
 ## Installation
-1. `pip install bcconservationlands`  
 
 ## Usage
-The default db connection is `localhost:5432/postgis`
-
-```
-$ conservationlands download [download folder] [postgresql url]
-$ conservationlands aggregate [download folder] [postgresql url]
-```
 
 ## Development and testing
-
-```
-pip install -e bcconservationlands
-```
 
 
 ## License
