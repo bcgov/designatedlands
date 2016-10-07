@@ -1,0 +1,5 @@
+requests
+fiona
+git+git://github.com/smnorris/pgdb.git
+git+git://github.com/smnorris/bcdata.git
+
