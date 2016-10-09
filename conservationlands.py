@@ -3,6 +3,7 @@ import urlparse
 import tempfile
 import getpass
 
+import click
 import fiona
 
 import pgdb
@@ -16,7 +17,14 @@ GRID_GDB = "NTS_250K_GRID.gdb"
 GRID_LAYER = "nts_250k_grid"
 
 
-def download(db):
+@click.group()
+def cli():
+    pass
+
+
+@cli.command()
+def download():
+    db = pgdb.connect()
     # if not already set, set download cache to temp file
     if not os.getenv("DOWNLOAD_CACHE"):
         os.environ["DOWNLOAD_CACHE"] = tempfile.gettempdir()
@@ -68,9 +76,11 @@ def download(db):
                              sql=source["query"])
 
 
-def clean(db):
+@cli.command()
+def clean():
     """Clean all input data, making sure polys are valid, doesn't overlap, etc
     """
+    db = pgdb.connect()
     for source in utils.read_csv(DATALIST):
         if source["download_supported"] == 'T':
             alias = source["alias"]
@@ -86,11 +96,23 @@ def clean(db):
             db.execute(sql)
 
 
-def process(db):
+def merge_national_parks(db):
+    """National Parks come from several files, remove that distinction
+    """
+    sql = """UPDATE {table}
+             SET category = 'park_national'
+             WHERE category LIKE 'park_national%'
+          """.format(table=SCHEMA+".output")
+    db.execute(sql)
+
+
+@cli.command()
+def process():
     """
     Create output layer, then iterate through each input adding records
     that do not overlap anything that has already been added
     """
+    db = pgdb.connect()
     db[SCHEMA+".output"].drop()
     sources = [s for s in utils.read_csv(DATALIST)
                if s["download_supported"] == 'T']
@@ -102,20 +124,11 @@ def process(db):
         sql = db.build_query(db.queries["populate_output"],
                              {"input": SCHEMA+"."+source["alias"]+"_c",
                              "output": SCHEMA+".output"})
+        click.echo(sql)
         db.execute(sql)
+    # cleanup
+    merge_national_parks(db)
 
 
-def merge_national_parks(db):
-    """National Parks come from several files, merge all into a single table
-    """
-    sql = """UPDATE {table}
-             SET category = 'park_national'
-             WHERE category LIKE 'park_national%'
-          """.format(table=SCHEMA+".output")
-    db.execute(sql)
-
-db = pgdb.connect()
-#download(db)
-#clean(db)
-#process(db)
-merge_national_parks(db)
+if __name__ == '__main__':
+    cli()
