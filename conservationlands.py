@@ -23,49 +23,52 @@ def cli():
               default=lambda: os.environ.get('BDATA_EMAIL', ''))
 @click.option('--dl_path', default="download_cache",
               type=click.Path(exists=True))
-def download(source_csv, email, dl_path):
+@click.option('--alias', '-a')
+def download(source_csv, email, dl_path, alias, force):
     """Download data, load to postgres
     """
-    sources = utils.read_csv(source_csv)
-    sources = [s for s in sources if s["download_supported"] == 'T']
-
     # create download path if it doesn't exist
     utils.make_sure_path_exists(dl_path)
+
+    sources = utils.read_csv(source_csv)
+
+    # only try and download data where scripted download is supported
+    sources = [s for s in sources if s["download_supported"] == 'T']
+
+    # if provided an alias, only download that single layer
+    if alias:
+        sources = [s for s in sources if s["alias"] == alias]
 
     # connect to postgres database, create working schema if it doesn't exist
     db = pgdb.connect()
     db.create_schema(config.schema)
 
     for source in sources:
-        if source["alias"] not in db.tables_in_schema(config.schema):
-            # read file extension to determine file type, defaulting to gdb
-            if source["file_in_url"]:
-                file_type = source["file_in_url"][-3:]
-            else:
-                file_type = "gdb"
+        utils.info("Downloading %s" % source["alias"])
 
-                utils.info("Downloading %s" % source["alias"])
-                # BCGW layers are prefixed by the catalog url
-                dwds = 'catalogue.data.gov.bc.ca'
-                if urlparse.urlparse(source["url"]).hostname == dwds:
-                    gdb = source["layer_in_file"].split(".")[1]+".gdb"
-                    file = utils.download_bcgw(source["url"], dl_path, gdb=gdb)
-                    # read the layer name from the gdb
-                    layer = fiona.listlayers(file)[0]
-                else:
-                    fp = utils.download(source['url'], dl_path)
-                    file = utils.extract(fp,
-                                         file_type,
-                                         source['file_in_url'],
-                                         source['layer_in_file'])
-                    layer = source["layer_in_file"]
-                # load data to postgres
-                utils.ogr2pg(db,
-                             file,
-                             in_layer=layer,
-                             out_layer="src_"+source["alias"],
-                             schema=config.schema,
-                             sql=source["query"])
+        # handle BCGW downloads
+        if urlparse.urlparse(source["url"]).hostname == 'catalogue.data.gov.bc.ca':
+            gdb = source["layer_in_file"].split(".")[1]+".gdb"
+            file = utils.download_bcgw(source["url"], dl_path, gdb=gdb)
+            # read the layer name from the gdb
+            layer = fiona.listlayers(file)[0]
+
+        # handle all other downloads
+        else:
+            fp = utils.download(source['url'], dl_path)
+            file = utils.extract(fp,
+                                 source['file_in_url'],
+                                 source['layer_in_file'],
+                                 dl_path)
+            layer = source["layer_in_file"]
+
+        # load downloaded data to postgres
+        utils.ogr2pg(db,
+                     file,
+                     in_layer=layer,
+                     out_layer="src_"+source["alias"],
+                     schema=config.schema,
+                     sql=source["query"])
 
 
 @cli.command()
@@ -76,6 +79,8 @@ def process_manual_downloads(source_csv, dl_path):
     """Load manually downloaded data to postgres
     """
     db = pgdb.connect()
+    # create schema if it doesn't exist
+    db.create_schema(config.schema)
     sources = utils.read_csv(source_csv)
     sources = [s for s in sources if s["download_supported"] == 'F']
     for source in sources:

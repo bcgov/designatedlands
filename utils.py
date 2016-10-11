@@ -139,13 +139,14 @@ def download(url, download_cache=None):
     return fp
 
 
-def extract(fp, source_filetype, source_filename, layer):
+def extract(fp, dl_path, source_filename):
     """
     Unzip the archive, return path to specified file
     (this presumes that we already know the name of the desired file)
     """
     info('Extracting', fp.name)
-    unzip_dir = tempfile.mkdtemp(suffix='_'+source_filetype)
+    source_filetype = source_filename[-3:]
+    unzip_dir = make_sure_path_exists(dl_path+"_"+source_filetype)
     zipped_file = get_compressed_file_wrapper(fp.name)
     zipped_file.extractall(unzip_dir)
     zipped_file.close()
