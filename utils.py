@@ -46,9 +46,9 @@ def read_csv(path):
 
 
 def make_sure_path_exists(path):
-    """Make directories in path if they do not exist.
+    """
+    Make directories in path if they do not exist.
     Modified from http://stackoverflow.com/a/5032238/1377021
-    :param path: string
     """
     try:
         os.makedirs(path)
@@ -58,12 +58,11 @@ def make_sure_path_exists(path):
 
 def get_path_parts(path):
     """Splits a path into parent directories and file.
-    :param path: string
     """
     return path.split(os.sep)
 
 
-def download_bcgw(url, email=None, gdb=None):
+def download_bcgw(url, dl_path, email=None, gdb=None):
     """Download BCGW data using DWDS
     """
     # check that the extracted download isn't already in tmp
@@ -71,25 +70,23 @@ def download_bcgw(url, email=None, gdb=None):
         email = os.environ["BCDATA_EMAIL"]
     if not email:
         raise Exception("Set BCDATA_EMAIL environment variable")
-    if gdb and os.path.exists(os.path.join(tempfile.gettempdir(), gdb)):
+    if gdb and os.path.exists(os.path.join(dl_path, gdb)):
         info("Returning %s from local cache" % gdb)
-        return os.path.join(tempfile.gettempdir(), gdb)
+        return os.path.join(dl_path, gdb)
     else:
         order_id = bcdata.create_order(url, email)
         if not order_id:
             raise Exception("Failed to create DWDS order")
         # download and extract the order
         download = bcdata.download_order(order_id)
-        # move the downloaded .gdb up to temp folder
-        up_one = os.path.dirname(os.path.dirname(download))
+        # move the downloaded .gdb to specified dl_path
         out_gdb = os.path.split(download)[1]
-        shutil.copytree(download, os.path.join(up_one, out_gdb))
-        return os.path.join(up_one, out_gdb)
+        shutil.copytree(download, os.path.join(dl_path, out_gdb))
+        return os.path.join(dl_path, out_gdb)
 
 
-def download(url):
-    """Download a file to $TMP
-    :param url: string
+def download(url, download_cache=None):
+    """Download a file to location specified
     """
     info('Downloading', url)
 
@@ -100,7 +97,6 @@ def download(url):
 
     fp = tempfile.NamedTemporaryFile('wb', suffix=extension, delete=False)
 
-    download_cache = os.getenv("DOWNLOAD_CACHE")
     cache_path = None
     if download_cache is not None:
         cache_path = os.path.join(download_cache,
@@ -144,7 +140,8 @@ def download(url):
 
 
 def extract(fp, source_filetype, source_filename, layer):
-    """Unzip the archive, return path to specified file
+    """
+    Unzip the archive, return path to specified file
     (this presumes that we already know the name of the desired file)
     """
     info('Extracting', fp.name)
@@ -213,7 +210,8 @@ def get_compressed_file_wrapper(path):
 
 def ogr2pg(db, in_file, in_layer=None, out_layer=None,
            schema='public', t_srs='EPSG:3005', sql=None):
-    """Load a layer to provided pgdb database connection using OGR2OGR
+    """
+    Load a layer to provided pgdb database connection using OGR2OGR
 
     SQL provided is like the ESRI where_clause, but in SQLITE dialect:
     SELECT * FROM <in_layer> WHERE <sql>
@@ -246,4 +244,21 @@ def ogr2pg(db, in_file, in_layer=None, out_layer=None,
         # remove layer name, it is ignored in combination with sql
         command.pop()
     info('Loading %s to %s' % (out_layer, db.url))
+    subprocess.call(" ".join(command), shell=True)
+
+
+def pg2shp(db, sql, out_shp, t_srs='EPSG:3005'):
+    """Dump a PostGIS query to shapefile
+    """
+    command = ["ogr2ogr",
+               "-t_srs "+t_srs,
+               out_shp,
+               """PG:'host={h} user={u} dbname={db} password={pwd}' \
+               """.format(h=db.host,
+                          u=db.user,
+                          db=db.database,
+                          pwd=db.password),
+               "-lco OVERWRITE=YES",
+               "-sql "+sql]
+    info('Dumping query to %s' % out_shp)
     subprocess.call(" ".join(command), shell=True)

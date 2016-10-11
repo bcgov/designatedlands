@@ -11,7 +11,7 @@ CREATE UNLOGGED TABLE IF NOT EXISTS $out_table (
 INSERT INTO $out_table (category, geom)
   SELECT category, geom
   FROM (SELECT
-          '$alias'::TEXT as category,
+          '$layer'::TEXT as category,
   -- subdivide for speed
           st_subdivide((st_dump(
   -- union to remove overlapping polys within the source
@@ -27,4 +27,4 @@ INSERT INTO $out_table (category, geom)
         GROUP BY category) as foo;
 
 -- index for speed
-CREATE INDEX $alias_gix ON $out_table USING GIST (geom);
+CREATE INDEX $layer_gix ON $out_table USING GIST (geom);
