@@ -24,7 +24,7 @@ def cli():
 @click.option('--dl_path', default="download_cache",
               type=click.Path(exists=True))
 @click.option('--alias', '-a')
-def download(source_csv, email, dl_path, alias, force):
+def download(source_csv, email, dl_path, alias):
     """Download data, load to postgres
     """
     # create download path if it doesn't exist
@@ -55,11 +55,15 @@ def download(source_csv, email, dl_path, alias, force):
 
         # handle all other downloads
         else:
-            fp = utils.download(source['url'], dl_path)
-            file = utils.extract(fp,
-                                 source['file_in_url'],
-                                 source['layer_in_file'],
-                                 dl_path)
+            if os.path.exists(os.path.join(dl_path, source["alias"])):
+                file = os.path.join(dl_path, source["alias"],
+                                    source['file_in_url'])
+            else:
+                fp = utils.download(source['url'])
+                file = utils.extract(fp,
+                                     dl_path,
+                                     source['alias'],
+                                     source['file_in_url'])
             layer = source["layer_in_file"]
 
         # load downloaded data to postgres

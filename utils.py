@@ -52,6 +52,7 @@ def make_sure_path_exists(path):
     """
     try:
         os.makedirs(path)
+        return path
     except:
         pass
 
@@ -71,7 +72,6 @@ def download_bcgw(url, dl_path, email=None, gdb=None):
     if not email:
         raise Exception("Set BCDATA_EMAIL environment variable")
     if gdb and os.path.exists(os.path.join(dl_path, gdb)):
-        info("Returning %s from local cache" % gdb)
         return os.path.join(dl_path, gdb)
     else:
         order_id = bcdata.create_order(url, email)
@@ -95,18 +95,18 @@ def download(url, download_cache=None):
     urlfile = parsed_url.path.split('/')[-1]
     _, extension = os.path.split(urlfile)
 
-    fp = tempfile.NamedTemporaryFile('wb', suffix=extension, delete=False)
+    fp = tempfile.NamedTemporaryFile('wb', dir=download_cache,
+                                     suffix=extension, delete=False)
+    if not download_cache:
+        download_cache = tempfile.gettempdir()
 
-    cache_path = None
-    if download_cache is not None:
-        cache_path = os.path.join(download_cache,
-                                  hashlib.sha224(url).hexdigest())
-        if os.path.exists(cache_path):
-            info(cache_path)
-            info("Returning %s from local cache" % url)
-            fp.close()
-            shutil.copy(cache_path, fp.name)
-            return fp
+    cache_path = os.path.join(download_cache,
+                              hashlib.sha224(url).hexdigest())
+    if os.path.exists(cache_path):
+        info("Returning %s from local cache" % url)
+        fp.close()
+        shutil.copy(cache_path, fp.name)
+        return fp
 
     if parsed_url.scheme == "http" or parsed_url.scheme == "https":
         res = requests.get(url, stream=True, verify=False)
@@ -139,14 +139,14 @@ def download(url, download_cache=None):
     return fp
 
 
-def extract(fp, dl_path, source_filename):
+def extract(fp, dl_path, alias, source_filename):
     """
     Unzip the archive, return path to specified file
     (this presumes that we already know the name of the desired file)
     """
     info('Extracting', fp.name)
-    source_filetype = source_filename[-3:]
-    unzip_dir = make_sure_path_exists(dl_path+"_"+source_filetype)
+    unzip_dir = make_sure_path_exists(os.path.join(dl_path, alias))
+    info(unzip_dir)
     zipped_file = get_compressed_file_wrapper(fp.name)
     zipped_file.extractall(unzip_dir)
     zipped_file.close()
