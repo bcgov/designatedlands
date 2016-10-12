@@ -113,13 +113,13 @@ def clean(source_csv):
             # Any layers that aren't given a hierarchy number will have c00_
             # as the layer name prefix
             hierarchy = str(source["hierarchy"]).zfill(2)
-            out_layer = "c"+hierarchy+"_"+source["alias"]
-            out_table = config.schema+"."+out_layer
+            clean_layer = "c"+hierarchy+"_"+source["alias"]
+            clean_table = config.schema+"."+clean_layer
 
             # Drop the table if it already exists
-            db[out_table].drop()
-            lookup = {"out_table": out_table,
-                      "layer": out_layer,
+            db[clean_table].drop()
+            lookup = {"out_table": clean_table,
+                      "layer": clean_layer,
                       "source": config.schema+".src_"+source["alias"]}
             sql = db.build_query(db.queries["clean"], lookup)
             db.execute(sql)
@@ -150,12 +150,12 @@ def pre_process(source_csv):
 @cli.command()
 @click.option('--source_csv', '-s', default=config.source_csv,
               type=click.Path(exists=True))
-@click.option('--out_table', '-o', default="conservation_lands")
+@click.option('--out_table', '-o', default=config.out_table)
 def process(source_csv, out_table):
     """Create output conservation lands layer
     """
     db = pgdb.connect()
-    db[config.schema+".output"].drop()
+    db[config.schema+"."+out_table].drop()
     out_table = config.schema+"."+out_table
     db.execute(db.build_query(db.queries['create_output'],
                               {"output": out_table}))
@@ -172,7 +172,6 @@ def process(source_csv, out_table):
         sql = db.build_query(db.queries["populate_output"],
                              {"input": in_table,
                               "output": out_table})
-        click.echo(sql)
         db.execute(sql)
     # cleanup - merge national parks
     sql = """UPDATE {table}
@@ -183,7 +182,7 @@ def process(source_csv, out_table):
 
 
 @cli.command()
-@click.option('--out_shape', '-o', default=config.output_shp)
+@click.option('--out_shape', '-o', default=config.out_shp)
 def dump(out_shape):
     """Dump output conservation lands layer to shp
     """
@@ -207,8 +206,8 @@ def dump(out_shape):
               default=lambda: os.environ.get('BDATA_EMAIL', ''))
 @click.option('--dl_path', default=config.downloads,
               type=click.Path(exists=True))
-@click.option('--out_table', default="conservation_lands")
-@click.option('--out_shape', default=config.output_shp)
+@click.option('--out_table', default=config.out_table)
+@click.option('--out_shape', default=config.out_shp)
 def run_all(source_csv, email, dl_path, out_table, out_shape):
     """ Run complete conservation lands job
     """

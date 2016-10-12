@@ -8,10 +8,10 @@ downloads = "downloads"
 source_csv = "sources.csv"
 
 # name of output table created by overlays
-output_table = "conservation_lands"
+out_table = "conservation_lands"
 
 # name of shapefile dumped from output_table
-output_shp = "conservation_lands.shp"
+out_shp = "conservation_lands.shp"
 
 # name of postgres schema in which to do the work
 schema = "conservation_test"
