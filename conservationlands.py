@@ -33,7 +33,7 @@ def download(source_csv, email, dl_path, alias):
     sources = utils.read_csv(source_csv)
 
     # only try and download data where scripted download is supported
-    sources = [s for s in sources if s["download_supported"] == 'T']
+    sources = [s for s in sources if s["manual_download"] != 'T']
 
     # if provided an alias, only download that single layer
     if alias:
@@ -86,7 +86,7 @@ def process_manual_downloads(source_csv, dl_path):
     # create schema if it doesn't exist
     db.create_schema(config.schema)
     sources = utils.read_csv(source_csv)
-    sources = [s for s in sources if s["download_supported"] == 'F']
+    sources = [s for s in sources if s["manual_download"] == 'T']
     for source in sources:
         file = os.path.join(dl_path, source["file_in_url"])
         layer = source["layer_in_file"]
@@ -106,7 +106,8 @@ def clean(source_csv):
     """
     db = pgdb.connect()
     for source in utils.read_csv(source_csv):
-        if source["download_supported"] == 'T':
+        # for testing, just use automated downloads
+        if source["manual_download"] != 'T':
             utils.info("Cleaning %s" % source["alias"])
             # Make things easier to find by ordering the layers by hierarchy #
             # Any layers that aren't given a hierarchy number will have c00_
@@ -155,16 +156,14 @@ def process(source_csv, out_table):
     """
     db = pgdb.connect()
     db[config.schema+".output"].drop()
-    sources = [s for s in utils.read_csv(source_csv)
-               if s["download_supported"] == 'T']
     out_table = config.schema+"."+out_table
     db.execute(db.build_query(db.queries['create_output'],
                               {"output": out_table}))
-    # loop through all the data
-    sources = [s for s in sources if s['hierarchy']]
+    # use only sources that have a hierarchy number
+    sources = [s for s in utils.read_csv(source_csv) if s['hierarchy']]
 
     # for testing, just use automated downloads
-    sources = [s for s in sources if s["download_supported"] == 'T']
+    sources = [s for s in sources if s["manual_download"] != 'T']
 
     for source in sources:
         utils.info("Inserting %s into output" % source["alias"])
