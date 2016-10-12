@@ -16,12 +16,12 @@ def cli():
 
 
 @cli.command()
-@click.option('--source_csv', '-s', default=config.csv,
+@click.option('--source_csv', '-s', default=config.source_csv,
               type=click.Path(exists=True))
 @click.option('--email',
               prompt=True,
               default=lambda: os.environ.get('BDATA_EMAIL', ''))
-@click.option('--dl_path', default="download_cache",
+@click.option('--dl_path', default=config.downloads,
               type=click.Path(exists=True))
 @click.option('--alias', '-a')
 def download(source_csv, email, dl_path, alias):
@@ -76,9 +76,9 @@ def download(source_csv, email, dl_path, alias):
 
 
 @cli.command()
-@click.option('--source_csv', '-s', default=config.csv,
+@click.option('--source_csv', '-s', default=config.source_csv,
               type=click.Path(exists=True))
-@click.option('-dl_path', default="download_cache")
+@click.option('-dl_path', default=config.downloads)
 def process_manual_downloads(source_csv, dl_path):
     """Load manually downloaded data to postgres
     """
@@ -99,7 +99,7 @@ def process_manual_downloads(source_csv, dl_path):
 
 
 @cli.command()
-@click.option('--source_csv', '-s', default=config.csv,
+@click.option('--source_csv', '-s', default=config.source_csv,
               type=click.Path(exists=True))
 def clean(source_csv):
     """Clean/validate all input data
@@ -126,7 +126,7 @@ def clean(source_csv):
 
 
 @cli.command()
-@click.option('--source_csv', '-s', default=config.csv,
+@click.option('--source_csv', '-s', default=config.source_csv,
               type=click.Path(exists=True))
 def pre_process(source_csv):
     """
@@ -148,7 +148,7 @@ def pre_process(source_csv):
 
 
 @cli.command()
-@click.option('--source_csv', '-s', default=config.csv,
+@click.option('--source_csv', '-s', default=config.source_csv,
               type=click.Path(exists=True))
 @click.option('--out_table', '-o', default="conservation_lands")
 def process(source_csv, out_table):
@@ -200,12 +200,12 @@ def dump(out_shape):
 
 
 @cli.command()
-@click.option('--source_csv', '-s', default=config.csv,
+@click.option('--source_csv', '-s', default=config.source_csv,
               type=click.Path(exists=True))
 @click.option('--email',
               prompt=True,
               default=lambda: os.environ.get('BDATA_EMAIL', ''))
-@click.option('--dl_path', default="download_cache",
+@click.option('--dl_path', default=config.downloads,
               type=click.Path(exists=True))
 @click.option('--out_table', default="conservation_lands")
 @click.option('--out_shape', default=config.output_shp)

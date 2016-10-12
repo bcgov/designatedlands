@@ -2,18 +2,16 @@
 
 Combine conservation related spatial data from many sources to create a single 'Conservation Lands' layer for British Columbia.
 
-# Installation
-
 ## Requirements
 - PostgreSQL 8.4+, PostGIS 2.0+ (tested on PostgreSQL 9.5, PostGIS 2.2.2)
-- ogr2ogr (GDAL)
+- GDAL (ogr2ogr available at the command line)
 - Python 2.7
-
-See `requirements.txt` for additional Python package requirements.
 
 ## Installation
 
+
 ## Usage
+
 
 ## Development and testing
 
