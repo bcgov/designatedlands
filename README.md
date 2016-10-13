@@ -68,7 +68,7 @@ Commands:
 
 For help regarding an individual command:
 ```
-$ conservationlands download --help
+$ python conservationlands.py download --help
 Usage: conservationlands download [OPTIONS]
 
   Download data, load to postgres
@@ -84,20 +84,20 @@ Options:
 ### Examples
 Presuming all manual downloads specified are complete, process all data, then dump the results to shapefile:
 ```
-$ conservationlands download --email myemail@email.bc.ca
-$ conservationlands load_manual_downloads
-$ conservationlands clean
-$ conservationlands process
-$ conservationlands dump
+$ python conservationlands.py download --email myemail@email.bc.ca
+$ python conservationlands.py load_manual_downloads
+$ python conservationlands.py clean
+$ python conservationlands.py process
+$ python conservationlands.py dump
 ```
 Or, run all the above steps in a single command:
 ```
-$ conservationlands run_all
+$ python conservationlands.py run_all
 ```
 
 Most commands allow the user to specify inputs other than the default. For example, to download a single layer with **alias**=`park_provincial` as defined in a file `newparks_sources.csv` to the folder `newparks_download`, and copy to postgres:
 ```
-$ conservationlands download \
+$ python conservationlands.py download \
   -a park_provincial \
   -s newparks_sources.csv \
   --email myemail@email.bc.ca \
