@@ -39,14 +39,10 @@ Combine conservation related spatial data from many sources to create a single '
         $ pip install .
         $ cd ../bcdata-master
         $ pip install .
-        $ pip intall Fiona     # or via downloaded wheel on Windows, see below
+        $ pip install Fiona     # or via downloaded wheel on Windows, see below
         $ cd ../conservationlands-master
 
-5. Note that on Windows, to install the Fiona dependency you will likely have to manually download the pre-built wheel. [See the Fiona manual for details and a link to the wheel](https://github.com/Toblerity/Fiona#windows). Also 
-
-7. (Optional) Install the script itself if you want run it without pointing to the full path:
-        
-        $ pip install .
+5. Note that on Windows, to install the Fiona dependency you will likely have to manually download the pre-built wheel. [See the Fiona manual for details and a link to the wheel](https://github.com/Toblerity/Fiona#windows). Some further PATH configurations will be required if you are installing Fiona to a Python installed by ArcGIS.
 
 ## Usage
 The file `sources.csv` defines all layers/data sources to be processed and how the script will process each layer. 
