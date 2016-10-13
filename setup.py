@@ -8,11 +8,11 @@ setup(
         'Click',
         'Requests',
         'Fiona',
-        'git+git://github.com/smnorris/pgdb.git',
-        'git+git://github.com/smnorris/bcdata.git',
+        'pgdb',
+        'bcdata'
     ],
     entry_points='''
         [console_scripts]
         conservationlands=conservationlands:cli
-    ''',
+    '''
 )

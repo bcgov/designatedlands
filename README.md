@@ -4,19 +4,53 @@ Combine conservation related spatial data from many sources to create a single '
 
 ## Requirements
 - PostgreSQL 8.4+, PostGIS 2.0+ (tested on PostgreSQL 9.5, PostGIS 2.2.2)
-- GDAL (ogr2ogr available at the command line)
+- GDAL (with ogr2ogr available at the command line)
 - Python 2.7
+- [PhantomJS](http://phantomjs.org/download.html) (currently a requirement for scripted DataBC Catalog downloads via [bcdata](https://github.com/smnorris/bcdata))
 
 ## Installation
-1. Install all requirements noted above. On Windows, you will also likely have to [manually install](https://github.com/Toblerity/Fiona#windows) `Fiona` (via the pre-compiled wheels binaries). 
+1. Install all requirements noted above
 
-2. Ensure Python is available at the command prompt. Setting your PATH environment to point to the Python executable may be required, something like this:  
-```set PATH="E:\sw_nt\Python27\ArcGIS10.3";"E:\sw_nt\Python27\ArcGIS10.3\Scripts";%PATH%```
+2. Ensure Python is available at the command prompt. If the path to your Python executable is not already included in your PATH environment variable you will probably have to add it, using a command something like this:  
+
+        $ set PATH="E:\sw_nt\Python27\ArcGIS10.3";"E:\sw_nt\Python27\ArcGIS10.3\Scripts";%PATH%
+
 3. Ensure `pip` is installed, [install](https://pip.pypa.io/en/stable/installing/) if it is not. 
 
-4. `pip install -e git+git://github.com/smnorris/conservationlands.git`
+4. (Optional) Consider installing the script to a [virtual environment](https://virtualenv.pypa.io/en/stable/) rather than to the system Python:
 
-Pip should fetch all required python modules for you.
+        
+        $ pip install virtualenv                     # if not already installed
+        $ mkdir conservationlands_venv
+        $ virtualenv conservationlands_venv
+        $ source conservationlands_venv/bin/activate # activate the env, posix
+        $ conservationlands_venv\Scripts\activate    # activate the env, windows
+        
+
+5. On Windows, to install the Fiona dependency you will likely have to manually download the pre-built wheel. [See the Fiona manual for details and a link to the wheel](https://github.com/Toblerity/Fiona#windows)
+
+6. Install `bcdata` and `pgdb` dependencies:  
+If git is installed:
+
+        pip install git+https://github.com/smnorris/bcdata#egg=bcdata
+        pip install git+https://github.com/smnorris/pgdb#egg=pgdb
+
+    If you don't have git installed to the command line, download the zipfiles from github, extract the archives, and install the packages with:
+
+        cd bcdata-master
+        pip install .
+        cd ../pgdb-master
+        pip install .
+
+7. Finally, install the script itself. If git is available:
+        
+        pip install git+https://github.com/smnorris/conservationlands#egg=conservationlands
+
+    Without git, download and extract the archive from github, then:
+
+        cd conservationlands-master
+        pip install .
+
 
 ## Usage
 
