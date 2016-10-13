@@ -45,7 +45,7 @@ Combine conservation related spatial data from many sources to create a single '
 5. Note that on Windows, to install the Fiona dependency you will likely have to manually download the pre-built wheel. [See the Fiona manual for details and a link to the wheel](https://github.com/Toblerity/Fiona#windows). Some further PATH configurations will be required if you are installing Fiona to a Python installed by ArcGIS.
 
 ## Configuration
-To modify the default database/schema/files/folders used to hold the data, edit the CONFIG dictionary at the top of the script. The db_url value is an [SQLAlchemy connection URL](http://docs.sqlalchemy.org/en/latest/core/engines.html#postgresql) 
+To modify the default database/schema/files/folders used to hold the data, edit the `CONFIG` dictionary at the top of `conservationlands.py` The `db_url `value is an [SQLAlchemy connection URL](http://docs.sqlalchemy.org/en/latest/core/engines.html#postgresql) 
 ```
 CONFIG = {"downloads": "downloads",
           "source_csv": "sources.csv",
