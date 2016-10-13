@@ -335,7 +335,7 @@ def download(source_csv, email, dl_path, alias):
                 file = os.path.join(dl_path, source["alias"],
                                     source['file_in_url'])
             else:
-                fp = download(source['url'])
+                fp = download_non_bcgw(source['url'])
                 file = extract(fp,
                                dl_path,
                                source['alias'],
