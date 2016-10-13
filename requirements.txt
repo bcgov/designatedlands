@@ -1,0 +1,5 @@
+Click
+Fiona
+Requests
+git+https://github.com/smnorris/bcdata#egg=bcdata
+git+https://github.com/smnorris/pgdb#egg=pgdb

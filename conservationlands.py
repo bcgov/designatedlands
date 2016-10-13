@@ -25,7 +25,7 @@ CONFIG = {"downloads": "downloads",
           "source_csv": "sources.csv",
           "out_table": "conservation_lands",
           "out_shp": "conservation_lands.shp",
-          "schema": "conservation_test"}
+          "schema": "conservation_lands"}
 # --------------------------------------------
 # --------------------------------------------
 
@@ -49,9 +49,12 @@ def get_files(path):
 
 
 def read_csv(path):
-    """Returns list of dicts from file.
     """
-    return [row for row in csv.DictReader(open(path, 'rb'))]
+    Returns list of dicts from file, sorted by 'hierarchy' column
+    https://stackoverflow.com/questions/72899/
+    """
+    source_list = [row for row in csv.DictReader(open(path, 'rb'))]
+    return sorted(source_list, key=lambda k: k['hierarchy'])
 
 
 def make_sure_path_exists(path):
@@ -352,7 +355,7 @@ def download(source_csv, email, dl_path, alias):
 @click.option('--source_csv', '-s', default=CONFIG["source_csv"],
               type=click.Path(exists=True))
 @click.option('-dl_path', default=CONFIG["downloads"])
-def process_manual_downloads(source_csv, dl_path):
+def load_manual_downloads(source_csv, dl_path):
     """Load manually downloaded data to postgres
     """
     db = pgdb.connect()
@@ -402,9 +405,9 @@ def clean(source_csv):
 @click.option('--source_csv', '-s', default=CONFIG["source_csv"],
               type=click.Path(exists=True))
 def pre_process(source_csv):
+    """Unsupported
     """
-    Unsupported (TODO)
-
+    """
     Loop through layers where source["preprocess"] has a value, execute
     the action specified by that value
 
@@ -485,7 +488,7 @@ def run_all(source_csv, email, dl_path, out_table, out_shape):
     """ Run complete conservation lands job
     """
     download(source_csv, email, dl_path)
-    process_manual_downloads(source_csv, dl_path)
+    load_manual_downloads(source_csv, dl_path)
     clean(source_csv)
     pre_process(source_csv)
     process(source_csv, out_table)
