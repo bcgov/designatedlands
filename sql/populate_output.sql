@@ -42,7 +42,8 @@ intersections AS (
               a.input_id AS id,
               ST_Buffer(
                 ST_Snaptogrid(
-                  ST_Union(a.output_geom), 0.001), 0) AS geom
+                  ST_Union(
+                    ST_MakeValid(a.output_geom)), 0.001), 0) AS geom
             FROM all_intersects a
             GROUP BY a.input_id) u
          ON i.id = u.id

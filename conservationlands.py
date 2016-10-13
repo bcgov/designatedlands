@@ -9,6 +9,7 @@ import tarfile
 import csv
 import subprocess
 import hashlib
+from operator import itemgetter
 
 import requests
 import click
@@ -19,12 +20,15 @@ import pgdb
 
 
 # --------------------------------------------
-# Change default data paths/filenames etc here
+# Change default database/paths/filenames etc here
 # --------------------------------------------
 CONFIG = {"downloads": "downloads",
           "source_csv": "sources.csv",
           "out_table": "conservation_lands",
           "out_shp": "conservation_lands.shp",
+          # sqlalchemy postgresql database url
+          # http://docs.sqlalchemy.org/en/latest/core/engines.html#postgresql
+          "db_url":  "postgresql://postgres:postgres@localhost:5432/postgis",
           "schema": "conservation_lands"}
 # --------------------------------------------
 # --------------------------------------------
@@ -54,6 +58,10 @@ def read_csv(path):
     https://stackoverflow.com/questions/72899/
     """
     source_list = [row for row in csv.DictReader(open(path, 'rb'))]
+    # convert hierarchy value to integer
+    for row in source_list:
+        row.update((k, int(v)) for k, v in row.iteritems()
+                   if k == "hierarchy" and v != '')
     return sorted(source_list, key=lambda k: k['hierarchy'])
 
 
@@ -316,7 +324,7 @@ def download(source_csv, email, dl_path, alias):
         sources = [s for s in sources if s["alias"] == alias]
 
     # connect to postgres database, create working schema if it doesn't exist
-    db = pgdb.connect()
+    db = pgdb.connect(CONFIG["db_url"])
     db.create_schema(CONFIG["schema"])
 
     for source in sources:
@@ -358,7 +366,7 @@ def download(source_csv, email, dl_path, alias):
 def load_manual_downloads(source_csv, dl_path):
     """Load manually downloaded data to postgres
     """
-    db = pgdb.connect()
+    db = pgdb.connect(CONFIG["db_url"])
     # create schema if it doesn't exist
     db.create_schema(CONFIG["schema"])
     sources = read_csv(source_csv)
@@ -380,7 +388,7 @@ def load_manual_downloads(source_csv, dl_path):
 def clean(source_csv):
     """Clean/validate all input data
     """
-    db = pgdb.connect()
+    db = pgdb.connect(CONFIG["db_url"])
     for source in read_csv(source_csv):
         # for testing, just use automated downloads
         if source["manual_download"] != 'T':
@@ -430,7 +438,7 @@ def pre_process(source_csv):
 def process(source_csv, out_table):
     """Create output conservation lands layer
     """
-    db = pgdb.connect()
+    db = pgdb.connect(CONFIG["db_url"])
     db[CONFIG["schema"]+"."+out_table].drop()
     out_table = CONFIG["schema"]+"."+out_table
     db.execute(db.build_query(db.queries['create_output'],
@@ -462,7 +470,7 @@ def process(source_csv, out_table):
 def dump(out_shape):
     """Dump output conservation lands layer to shp
     """
-    db = pgdb.connect()
+    db = pgdb.connect(CONFIG["db_url"])
     sql = """SELECT
                ROW_NUMBER() OVER() as id,
                category,
