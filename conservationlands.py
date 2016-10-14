@@ -318,6 +318,9 @@ def download(source_csv, email, dl_path, alias):
     # only try and download data where scripted download is supported
     sources = [s for s in sources if s["manual_download"] != 'T']
 
+    # for testing, ignore these layers
+    sources = [s for s in sources if s["manual_download"] != 'X']
+
     # if provided an alias, only download that single layer
     if alias:
         sources = [s for s in sources if s["alias"] == alias]
@@ -384,28 +387,36 @@ def load_manual_downloads(source_csv, dl_path):
 @cli.command()
 @click.option('--source_csv', '-s', default=CONFIG["source_csv"],
               type=click.Path(exists=True))
-def clean(source_csv):
+@click.option('--alias', '-a')
+def clean(source_csv, alias):
     """Clean/validate all input data
     """
     db = pgdb.connect(CONFIG["db_url"])
-    for source in read_csv(source_csv):
-        # for testing, just use automated downloads
-        if source["manual_download"] != 'T':
-            info("Cleaning %s" % source["alias"])
-            # Make things easier to find by ordering the layers by hierarchy #
-            # Any layers that aren't given a hierarchy number will have c00_
-            # as the layer name prefix
-            hierarchy = str(source["hierarchy"]).zfill(2)
-            clean_layer = "c"+hierarchy+"_"+source["alias"]
-            clean_table = CONFIG["schema"]+"."+clean_layer
+    sources = read_csv(source_csv)
 
-            # Drop the table if it already exists
-            db[clean_table].drop()
-            lookup = {"out_table": clean_table,
-                      "layer": clean_layer,
-                      "source": CONFIG["schema"]+".src_"+source["alias"]}
-            sql = db.build_query(db.queries["clean"], lookup)
-            db.execute(sql)
+    # if provided an alias, only clean that single layer
+    if alias:
+        sources = [s for s in sources if s["alias"] == alias]
+
+    # for testing, just use public data
+    sources = [s for s in sources if s["manual_download"] != 'X']
+
+    for source in sources:
+        info("Cleaning %s" % source["alias"])
+        # Make things easier to find by ordering the layers by hierarchy #
+        # Any layers that aren't given a hierarchy number will have c00_
+        # as the layer name prefix
+        hierarchy = str(source["hierarchy"]).zfill(2)
+        clean_layer = "c"+hierarchy+"_"+source["alias"]
+        clean_table = CONFIG["schema"]+"."+clean_layer
+
+        # Drop the table if it already exists
+        db[clean_table].drop()
+        lookup = {"out_table": clean_table,
+                  "layer": clean_layer,
+                  "source": CONFIG["schema"]+".src_"+source["alias"]}
+        sql = db.build_query(db.queries["clean"], lookup)
+        db.execute(sql)
 
 
 @cli.command()
@@ -445,8 +456,8 @@ def process(source_csv, out_table):
     # use only sources that have a hierarchy number
     sources = [s for s in read_csv(source_csv) if s['hierarchy']]
 
-    # for testing, just use automated downloads
-    sources = [s for s in sources if s["manual_download"] != 'T']
+    # for testing, flag non-public data
+    sources = [s for s in sources if s["manual_download"] != 'X']
 
     for source in sources:
         info("Inserting %s into output" % source["alias"])

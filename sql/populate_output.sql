@@ -20,10 +20,6 @@ FROM
 
 -- find the difference of the intersectiong records
 -- https://gis.stackexchange.com/questions/11592/difference-between-two-layers-in-postgis
-
--- to reduce topology exceptions:
--- 1. reduce precision of interesecting records because many edges are parallel
---    http://tsusiatsoftware.net/jts/jts-faq/jts-faq.html#D9
 intersections AS (
     SELECT
       id,
@@ -38,8 +34,11 @@ intersections AS (
          INNER JOIN
            (SELECT
               a.input_id AS id,
+-- to reduce topology exceptions, reduce precision of interesecting records
+-- because many edges are similar/parallel:
+-- http://tsusiatsoftware.net/jts/jts-faq/jts-faq.html#D9
               ST_MakeValid(ST_SnapToGrid(
-                            ST_Union(a.output_geom), .1)) AS geom
+                            ST_Union(a.output_geom), 1)) AS geom
             FROM all_intersects a
             GROUP BY a.input_id) u
          ON i.id = u.id
