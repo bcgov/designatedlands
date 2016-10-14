@@ -9,7 +9,6 @@ import tarfile
 import csv
 import subprocess
 import hashlib
-from operator import itemgetter
 
 import requests
 import click

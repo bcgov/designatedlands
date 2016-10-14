@@ -12,17 +12,19 @@ INSERT INTO $out_table (category, geom)
   SELECT category, geom
   FROM (SELECT
           '$layer'::TEXT as category,
+  -- make sure the subdivision output is valid
+          st_makevalid(
   -- subdivide for speed
           st_subdivide((st_dump(
   -- union to remove overlapping polys within the source
             ST_Union(
-  -- make buffer multipart
+  -- make buffer result multipart
                 ST_Multi(
-  -- buffer the features by 0 to make sure they are vaild
+  -- buffer the features by 0 to help with validity
                   ST_Buffer(
   -- snap to 1mm grid just to keep things simple and hopefully remove
   -- some precision errors/slivers
-                    st_snaptogrid(a.geom, .001), 0))))).geom) as geom
+                    st_snaptogrid(a.geom, .001), 0))))).geom)) as geom
         FROM $source a
         GROUP BY category) as foo;
 
