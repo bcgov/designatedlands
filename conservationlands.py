@@ -452,7 +452,9 @@ def process(source_csv, out_table):
     db[CONFIG["schema"]+"."+out_table].drop()
     out_table = CONFIG["schema"]+"."+out_table
     db.execute(db.build_query(db.queries['create_output'],
-                              {"output": out_table}))
+                              {"table": out_table}))
+    db[out_table].create_index_geom()
+
     # use only sources that have a hierarchy number
     sources = [s for s in read_csv(source_csv) if s['hierarchy']]
 
@@ -472,7 +474,7 @@ def process(source_csv, out_table):
              SET category = 'park_national'
              WHERE category LIKE 'park_national%'
           """.format(table=out_table)
-    db.execute(sql)
+    #db.execute(sql)
 
 
 @cli.command()
