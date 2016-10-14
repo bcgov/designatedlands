@@ -30,7 +30,7 @@ intersections AS (
            i.id,
            i.category,
            (ST_Dump(COALESCE(ST_Difference(i.geom, u.geom)))).geom  AS geom
-         FROM conservation_lands.c14_ngo_fee_simple AS i
+         FROM $input AS i
          INNER JOIN
            (SELECT
               a.input_id AS id,
