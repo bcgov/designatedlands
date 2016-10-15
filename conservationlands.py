@@ -22,7 +22,7 @@ import pgdb
 # Change default database/paths/filenames etc here
 # --------------------------------------------
 CONFIG = {"downloads": "downloads",
-          "source_csv": "sources.csv",
+          "source_csv": "sources_test.csv",
           "out_table": "conservation_lands",
           "out_shp": "conservation_lands.shp",
           # sqlalchemy postgresql database url
@@ -469,12 +469,38 @@ def process(source_csv, out_table):
                              {"input": in_table,
                               "output": out_table})
         db.execute(sql)
-    # cleanup - merge national parks
-    sql = """UPDATE {table}
+
+    # add rollup column by creating lookup table from source.csv
+    lookup_data = [dict(alias="c"+str(s["hierarchy"]).zfill(2)+"_"+s["alias"],
+                        rollup=s["rollup"])
+                   for s in sources if s["rollup"]]
+    # create lookup table
+    db[CONFIG["schema"]+".rollup_lookup"].drop()
+    db.execute("""CREATE TABLE {s}.rollup_lookup
+                  (id SERIAL PRIMARY KEY, alias TEXT, rollup TEXT)
+               """.format(s=CONFIG["schema"]))
+    db[CONFIG["schema"]+".rollup_lookup"].insert(lookup_data)
+
+    # add rollup column
+    if "rollup" not in db[out_table].columns:
+        db.execute("""ALTER TABLE {t}
+                      ADD COLUMN rollup TEXT
+                   """.format(t=out_table))
+
+    # populate rollup column from lookup
+    db.execute("""UPDATE {t} AS o
+                  SET rollup = lut.rollup
+                  FROM {s}.rollup_lookup AS lut
+                  WHERE o.category = lut.alias
+               """.format(t=out_table,
+                          s=CONFIG["schema"]))
+
+    # Remove national park names from the national park tags
+    sql = """UPDATE {t}
              SET category = 'park_national'
              WHERE category LIKE 'park_national%'
-          """.format(table=out_table)
-    #db.execute(sql)
+          """.format(t=out_table)
+    db.execute(sql)
 
 
 @cli.command()
@@ -486,10 +512,11 @@ def dump(out_shape):
     sql = """SELECT
                ROW_NUMBER() OVER() as id,
                category,
+               rollup,
                geom
-             FROM (SELECT category, ST_Union(geom)
+             FROM (SELECT category, rollup, ST_Union(geom)
                    FROM {s}.output
-                   GROUP BY category) as foo
+                   GROUP BY category, rollup) as foo
           """.format(s=CONFIG["schema"])
     pg2shp(db, sql, out_shape)
 
