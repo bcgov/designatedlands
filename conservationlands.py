@@ -22,7 +22,7 @@ import pgdb
 # Change default database/paths/filenames etc here
 # --------------------------------------------
 CONFIG = {"downloads": "downloads",
-          "source_csv": "sources_test.csv",
+          "source_csv": "sources.csv",
           "out_table": "conservation_lands",
           "out_shp": "conservation_lands.shp",
           # sqlalchemy postgresql database url
