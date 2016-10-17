@@ -11,41 +11,54 @@ WITH all_intersects AS
   o.id AS output_id,
   i.category AS input_category,
   -- snap new input poly within .1m of the exising output to the existing output
-  ST_MakeValid(ST_Snap(i.geom, o.geom, .1)) as input_geom,
+  --ST_MakeValid(ST_Snap(i.geom, o.geom, .1)) as input_geom,
   ST_MakeValid(o.geom) as output_geom
 FROM
   $input AS i INNER JOIN
   $output AS o ON
   ST_Intersects(o.geom, i.geom)),
 
--- find the difference of the intersectiong records
--- https://gis.stackexchange.com/questions/11592/difference-between-two-layers-in-postgis
-intersections AS (
-    SELECT
-      id,
-      category,
-      st_multi(st_union(geom)) AS geom
-    FROM
-        (SELECT
-           i.id,
-           i.category,
-           (ST_Dump(COALESCE(ST_Difference(i.geom, u.geom)))).geom  AS geom
-         FROM $input AS i
-         INNER JOIN
-           (SELECT
-              a.input_id AS id,
--- to reduce topology exceptions, reduce precision of interesecting records
--- because many edges are similar/parallel:
+-- Union the existing intersecting polys in the output/target layer
+-- To reduce topology exceptions, reduce precision of interesecting records
+-- because many edges are similar/parallel
 -- http://tsusiatsoftware.net/jts/jts-faq/jts-faq.html#D9
-              ST_MakeValid(ST_SnapToGrid(
-                            ST_Union(a.output_geom), 1)) AS geom
-            FROM all_intersects a
-            GROUP BY a.input_id) u
-         ON i.id = u.id
-         ) AS foo
-    WHERE st_area(geom) > 10
-    GROUP BY foo.id, foo.category
+target_intersections AS
+(SELECT
+   a.input_id AS id,
+   ST_MakeValid(
+      ST_SnapToGrid(
+         ST_Union(a.output_geom), .001)) AS geom
+FROM all_intersects a
+GROUP BY a.input_id),
+
+difference AS (
+SELECT
+  id,
+  category,
+  st_multi(st_union(geom)) AS geom
+FROM
+    (SELECT
+       i.id as id,
+       i.category as category,
+       (ST_Dump(COALESCE(
+        ST_Difference(
+             st_makevalid(
+                st_buffer(
+                   st_snap(
+                      st_snaptogrid(i.geom, .01), u.geom, .1), 0)),
+
+             st_makevalid(
+                st_buffer(
+                   st_snaptogrid(u.geom, .01), 0))
+          )))).geom AS geom
+     FROM $input AS i
+     INNER JOIN target_intersections u
+     ON i.id = u.id
+     ) AS foo
+WHERE st_area(geom) > 10
+GROUP BY foo.id, foo.category
 ),
+
 
 -- finally, non-intersecting records
 non_intersections AS
@@ -60,7 +73,7 @@ WHERE a.input_id IS null)
 
 -- combine things and make sure we aren't inserting point or line intersections
 SELECT id, category, ST_MakeValid(geom) as geom
-FROM intersections
+FROM difference
 WHERE GeometryType(geom) = 'MULTIPOLYGON'
 UNION ALL
 SELECT id, category, ST_MakeValid(geom) as geom
