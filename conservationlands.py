@@ -443,18 +443,25 @@ def pre_process(source_csv):
 @click.option('--source_csv', '-s', default=CONFIG["source_csv"],
               type=click.Path(exists=True))
 @click.option('--out_table', '-o', default=CONFIG["out_table"])
-def process(source_csv, out_table):
+@click.option('--resume', '-r',
+              help='hierarchy number at which to resume processing')
+def process(source_csv, out_table, resume):
     """Create output conservation lands layer
     """
     db = pgdb.connect(CONFIG["db_url"])
-    db[CONFIG["schema"]+"."+out_table].drop()
     out_table = CONFIG["schema"]+"."+out_table
-    db.execute(db.build_query(db.queries['create_output'],
-                              {"table": out_table}))
-    db[out_table].create_index_geom()
+    if not resume:
+        db[CONFIG["schema"]+"."+out_table].drop()
+        db.execute(db.build_query(db.queries['create_output'],
+                                  {"table": out_table}))
+        db[out_table].create_index_geom()
 
     # use only sources that have a hierarchy number
     sources = [s for s in read_csv(source_csv) if s['hierarchy']]
+
+    # if resume option is specified, resume processing at specified layer
+    if resume:
+        sources = [s for s in sources if int(s["hierarchy"]) >= int(resume)]
 
     # for testing, flag non-public data
     sources = [s for s in sources if s["manual_download"] != 'X']
