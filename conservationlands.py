@@ -248,21 +248,21 @@ def ogr2pg(db, in_file, in_layer=None, out_layer=None,
         in_layer = os.path.splitext(os.path.basename(in_file))[0]
     if not out_layer:
         out_layer = in_layer.lower()
-    command = ["ogr2ogr",
-               "--config PG_USE_COPY YES",
-               "-t_srs "+t_srs,
-               "-f PostgreSQL",
-               """PG:'host={h} user={u} dbname={db} password={pwd}'""".format(
+    command = ['ogr2ogr',
+               '--config PG_USE_COPY YES',
+               '-t_srs '+t_srs,
+               '-f PostgreSQL',
+               '''PG:"host={h} user={u} dbname={db} password={pwd}"'''.format(
                           h=db.host,
                           u=db.user,
                           db=db.database,
                           pwd=db.password),
-               "-lco OVERWRITE=YES",
-               "-lco SCHEMA={schema}".format(schema=schema),
-               "-lco GEOMETRY_NAME=geom",
-               "-dim 2",
-               "-nln "+out_layer,
-               "-nlt PROMOTE_TO_MULTI",
+               '-lco OVERWRITE=YES',
+               '-lco SCHEMA={schema}'.format(schema=schema),
+               '-lco GEOMETRY_NAME=geom',
+               '-dim 2',
+               '-nln '+out_layer,
+               '-nlt PROMOTE_TO_MULTI',
                in_file,
                in_layer]
 
