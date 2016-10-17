@@ -89,7 +89,7 @@ def download_bcgw(url, dl_path, email=None, gdb=None):
     if not email:
         email = os.environ["BCDATA_EMAIL"]
     if not email:
-        raise Exception("Set BCDATA_EMAIL environment variable")
+        raise Exception("An email address is required to download BCGW data")
     if gdb and os.path.exists(os.path.join(dl_path, gdb)):
         return os.path.join(dl_path, gdb)
     else:
@@ -301,9 +301,7 @@ def cli():
 @cli.command()
 @click.option('--source_csv', '-s', default=CONFIG["source_csv"],
               type=click.Path(exists=True))
-@click.option('--email',
-              prompt=True,
-              default=lambda: os.environ.get('BDATA_EMAIL', ''))
+@click.option('--email')
 @click.option('--dl_path', default=CONFIG["downloads"],
               type=click.Path(exists=True))
 @click.option('--alias', '-a')
@@ -335,7 +333,7 @@ def download(source_csv, email, dl_path, alias):
         # handle BCGW downloads
         if urlparse(source["url"]).hostname == 'catalogue.data.gov.bc.ca':
             gdb = source["layer_in_file"].split(".")[1]+".gdb"
-            file = download_bcgw(source["url"], dl_path, gdb=gdb)
+            file = download_bcgw(source["url"], dl_path, email=email, gdb=gdb)
             # read the layer name from the gdb
             layer = fiona.listlayers(file)[0]
 
@@ -524,9 +522,7 @@ def dump(out_shape):
 @cli.command()
 @click.option('--source_csv', '-s', default=CONFIG["source_csv"],
               type=click.Path(exists=True))
-@click.option('--email',
-              prompt=True,
-              default=lambda: os.environ.get('BDATA_EMAIL', ''))
+@click.option('--email')
 @click.option('--dl_path', default=CONFIG["downloads"],
               type=click.Path(exists=True))
 @click.option('--out_table', default=CONFIG["out_table"])
