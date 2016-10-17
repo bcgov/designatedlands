@@ -50,7 +50,8 @@ FROM
              st_makevalid(
                 st_buffer(
                    st_snaptogrid(u.geom, .01), 0))
-          )))).geom AS geom
+          )))).geom
+        AS geom
      FROM $input AS i
      INNER JOIN target_intersections u
      ON i.id = u.id

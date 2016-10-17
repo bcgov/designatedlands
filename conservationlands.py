@@ -252,8 +252,8 @@ def ogr2pg(db, in_file, in_layer=None, out_layer=None,
                "--config PG_USE_COPY YES",
                "-t_srs "+t_srs,
                "-f PostgreSQL",
-               """PG:'host={h} user={u} dbname={db} password={pwd}' \
-               """.format(h=db.host,
+               """PG:'host={h} user={u} dbname={db} password={pwd}'""".format(
+                          h=db.host,
                           u=db.user,
                           db=db.database,
                           pwd=db.password),
