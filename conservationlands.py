@@ -36,6 +36,14 @@ CHUNK_SIZE = 1024
 
 logging.basicConfig(level=logging.INFO)
 
+HELP = {
+  "csv": 'path to a csv that lists all input data and sources',
+  "email": 'a valid email address to use for DataBC downloads',
+  "dl_path": 'path to folder for saving downloaded data',
+  "alias": "the 'alias' key identifing the layer of interest, from source csv",
+  "out_shape": "Name of output conservation lands shapefile",
+  "out_table": 'name of output conservation lands postgresql table'}
+
 
 def get_files(path):
     """Returns an iterable containing the full path of all files in the
@@ -279,17 +287,18 @@ def ogr2pg(db, in_file, in_layer=None, out_layer=None,
 def pg2shp(db, sql, out_shp, t_srs='EPSG:3005'):
     """Dump a PostGIS query to shapefile
     """
-    command = ["ogr2ogr",
-               "-t_srs "+t_srs,
+    command = ['ogr2ogr',
+               '-t_srs '+t_srs,
                out_shp,
-               """PG:'host={h} user={u} dbname={db} password={pwd}' \
-               """.format(h=db.host,
+               '''PG:"host={h} user={u} dbname={db} password={pwd}"
+               '''.format(h=db.host,
                           u=db.user,
                           db=db.database,
                           pwd=db.password),
-               "-lco OVERWRITE=YES",
-               "-sql "+sql]
+               '-lco OVERWRITE=YES',
+               '-sql "'+sql+'"']
     info('Dumping query to %s' % out_shp)
+    print " ".join(command)
     subprocess.call(" ".join(command), shell=True)
 
 
@@ -300,11 +309,11 @@ def cli():
 
 @cli.command()
 @click.option('--source_csv', '-s', default=CONFIG["source_csv"],
-              type=click.Path(exists=True))
-@click.option('--email')
+              type=click.Path(exists=True), help=HELP['csv'])
+@click.option('--email', help=HELP['email'])
 @click.option('--dl_path', default=CONFIG["downloads"],
-              type=click.Path(exists=True))
-@click.option('--alias', '-a')
+              type=click.Path(exists=True), help=HELP['dl_path'])
+@click.option('--alias', '-a', help=HELP['alias'])
 def download(source_csv, email, dl_path, alias):
     """Download data, load to postgres
     """
@@ -361,8 +370,8 @@ def download(source_csv, email, dl_path, alias):
 
 @cli.command()
 @click.option('--source_csv', '-s', default=CONFIG["source_csv"],
-              type=click.Path(exists=True))
-@click.option('-dl_path', default=CONFIG["downloads"])
+              type=click.Path(exists=True), help=HELP['csv'])
+@click.option('--dl_path', default=CONFIG["downloads"], help=HELP['dl_path'])
 def load_manual_downloads(source_csv, dl_path):
     """Load manually downloaded data to postgres
     """
@@ -384,8 +393,8 @@ def load_manual_downloads(source_csv, dl_path):
 
 @cli.command()
 @click.option('--source_csv', '-s', default=CONFIG["source_csv"],
-              type=click.Path(exists=True))
-@click.option('--alias', '-a')
+              type=click.Path(exists=True), help=HELP['csv'])
+@click.option('--alias', '-a', help=HELP['alias'])
 def clean(source_csv, alias):
     """Clean/validate all input data
     """
@@ -419,7 +428,7 @@ def clean(source_csv, alias):
 
 @cli.command()
 @click.option('--source_csv', '-s', default=CONFIG["source_csv"],
-              type=click.Path(exists=True))
+              type=click.Path(exists=True), help=HELP['csv'])
 def pre_process(source_csv):
     """Unsupported
     """
@@ -441,8 +450,9 @@ def pre_process(source_csv):
 
 @cli.command()
 @click.option('--source_csv', '-s', default=CONFIG["source_csv"],
-              type=click.Path(exists=True))
-@click.option('--out_table', '-o', default=CONFIG["out_table"])
+              type=click.Path(exists=True), help=HELP['csv'])
+@click.option('--out_table', '-o', default=CONFIG["out_table"],
+              help=HELP["out_table"])
 @click.option('--resume', '-r',
               help='hierarchy number at which to resume processing')
 def process(source_csv, out_table, resume):
@@ -509,7 +519,8 @@ def process(source_csv, out_table, resume):
 
 
 @cli.command()
-@click.option('--out_shape', '-o', default=CONFIG["out_shp"])
+@click.option('--out_shape', '-o', default=CONFIG["out_shp"],
+              help=HELP["out_shape"])
 def dump(out_shape):
     """Dump output conservation lands layer to shp
     """
@@ -528,12 +539,13 @@ def dump(out_shape):
 
 @cli.command()
 @click.option('--source_csv', '-s', default=CONFIG["source_csv"],
-              type=click.Path(exists=True))
-@click.option('--email')
+              type=click.Path(exists=True), help=HELP['csv'])
+@click.option('--email', help=HELP['email'])
 @click.option('--dl_path', default=CONFIG["downloads"],
-              type=click.Path(exists=True))
-@click.option('--out_table', default=CONFIG["out_table"])
-@click.option('--out_shape', default=CONFIG["out_shp"])
+              type=click.Path(exists=True), help=HELP['dl_path'])
+@click.option('--out_table', default=CONFIG["out_table"],
+              help=HELP['out_table'])
+@click.option('--out_shape', default=CONFIG["out_shp"], help=HELP['out_shape'])
 def run_all(source_csv, email, dl_path, out_table, out_shape):
     """ Run complete conservation lands job
     """
