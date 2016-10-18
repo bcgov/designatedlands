@@ -289,16 +289,15 @@ def pg2shp(db, sql, out_shp, t_srs='EPSG:3005'):
     """
     command = ['ogr2ogr',
                '-t_srs '+t_srs,
-               out_shp,
-               '''PG:"host={h} user={u} dbname={db} password={pwd}"
-               '''.format(h=db.host,
-                          u=db.user,
-                          db=db.database,
-                          pwd=db.password),
                '-lco OVERWRITE=YES',
+               out_shp,
+               '''PG:"host={h} user={u} dbname={db} password={pwd}"'''.format(
+                  h=db.host,
+                  u=db.user,
+                  db=db.database,
+                  pwd=db.password),
                '-sql "'+sql+'"']
-    info('Dumping query to %s' % out_shp)
-    print " ".join(command)
+    info('Dumping data to %s' % out_shp)
     subprocess.call(" ".join(command), shell=True)
 
 
@@ -519,9 +518,11 @@ def process(source_csv, out_table, resume):
 
 
 @cli.command()
+@click.option('--out_table', '-o', default=CONFIG["out_table"],
+              help=HELP["out_table"])
 @click.option('--out_shape', '-o', default=CONFIG["out_shp"],
               help=HELP["out_shape"])
-def dump(out_shape):
+def dump(out_table, out_shape):
     """Dump output conservation lands layer to shp
     """
     db = pgdb.connect(CONFIG["db_url"])
@@ -530,10 +531,11 @@ def dump(out_shape):
                category,
                rollup,
                geom
-             FROM (SELECT category, rollup, ST_Union(geom)
-                   FROM {s}.output
-                   GROUP BY category, rollup) as foo
-          """.format(s=CONFIG["schema"])
+             FROM (SELECT category, rollup, ST_Union(geom) as geom
+                   FROM {s}.{t}
+                   GROUP BY category, rollup) as foo""".format(
+           s=CONFIG["schema"],
+           t=out_table)
     pg2shp(db, sql, out_shape)
 
 
