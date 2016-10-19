@@ -525,16 +525,9 @@ def dump(out_table, out_shape):
     """Dump output conservation lands layer to shp
     """
     db = pgdb.connect(CONFIG["db_url"])
-    sql = """SELECT
-               ROW_NUMBER() OVER() as id,
-               category,
-               rollup,
-               geom
-             FROM (SELECT category, rollup, ST_Union(geom) as geom
-                   FROM {s}.{t}
-                   GROUP BY category, rollup) as foo""".format(
-           s=CONFIG["schema"],
-           t=out_table)
+    sql = """SELECT category, rollup, geom
+             FROM {s}.{t}
+          """.format(s=CONFIG["schema"], t=out_table)
     pg2shp(db, sql, out_shape)
 
 
