@@ -93,19 +93,18 @@ def get_path_parts(path):
 def download_bcgw(url, dl_path, email=None, gdb=None):
     """Download BCGW data using DWDS
     """
-    # check that the extracted download isn't already in tmp
+    # make sure an email is provided
     if not email:
         email = os.environ["BCDATA_EMAIL"]
     if not email:
         raise Exception("An email address is required to download BCGW data")
+    # check that the extracted download isn't already in tmp
     if gdb and os.path.exists(os.path.join(dl_path, gdb)):
         return os.path.join(dl_path, gdb)
     else:
-        order_id = bcdata.create_order(url, email)
-        if not order_id:
+        download = bcdata.download(url, email)
+        if not download:
             raise Exception("Failed to create DWDS order")
-        # download and extract the order
-        download = bcdata.download_order(order_id)
         # move the downloaded .gdb to specified dl_path
         out_gdb = os.path.split(download)[1]
         shutil.copytree(download, os.path.join(dl_path, out_gdb))
