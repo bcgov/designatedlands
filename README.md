@@ -6,7 +6,6 @@ Combine conservation related spatial data from many sources to create a single '
 - PostgreSQL 8.4+, PostGIS 2.0+ (tested on PostgreSQL 9.5, PostGIS 2.2.2)
 - GDAL (with ogr2ogr available at the command line)
 - Python 2.7
-- [PhantomJS](http://phantomjs.org/download.html) (currently a requirement for scripted DataBC Catalog downloads via [bcdata](https://github.com/smnorris/bcdata))
 - git (optional, for less typing during installation)
 
 ## Installation
