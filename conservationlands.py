@@ -323,8 +323,8 @@ def download(source_csv, email, dl_path, alias):
     # only try and download data where scripted download is supported
     sources = [s for s in sources if s["manual_download"] != 'T']
 
-    # for testing, ignore these layers
-    sources = [s for s in sources if s["manual_download"] != 'X']
+    # ignore the layers that are flagged as excluded
+    sources = [s for s in sources if s["exclude"] != 'T']
 
     # if provided an alias, only download that single layer
     if alias:
@@ -403,8 +403,8 @@ def clean(source_csv, alias):
     if alias:
         sources = [s for s in sources if s["alias"] == alias]
 
-    # for testing, just use public data
-    sources = [s for s in sources if s["manual_download"] != 'X']
+    # ignore the layers that are flagged as excluded
+    sources = [s for s in sources if s["exclude"] != 'T']
 
     for source in sources:
         info("Cleaning %s" % source["alias"])
@@ -471,8 +471,8 @@ def process(source_csv, out_table, resume):
     if resume:
         sources = [s for s in sources if int(s["hierarchy"]) >= int(resume)]
 
-    # for testing, flag non-public data
-    sources = [s for s in sources if s["manual_download"] != 'X']
+    # ignore the layers that are flagged as excluded
+    sources = [s for s in sources if s["exclude"] != 'T']
 
     for source in sources:
         info("Inserting %s into output" % source["alias"])
