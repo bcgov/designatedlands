@@ -61,19 +61,19 @@ Before running the script, manually download all files defined in `sources.csv` 
 
 Once data are downloaded, script usage is:
 ```
-Usage: conservationlands [OPTIONS] COMMAND [ARGS]...
+Usage: conservationlands.py [OPTIONS] COMMAND [ARGS]...
 
 Options:
   --help  Show this message and exit.
 
 Commands:
-  clean                     Clean/validate all input data
-  download                  Download data, load to postgres
-  dump                      Dump output conservation lands layer to shp
-  pre_process               Unsupported
-  process                   Create output conservation lands layer
-  load_manual_downloads     Load manually downloaded data to postgres
-  run_all                   Run complete conservation lands job
+  clean                  Clean/validate all input data
+  download               Download data, load to postgres
+  dump                   Dump output conservation lands layer to shp
+  load_manual_downloads  Load manually downloaded data to postgres
+  preprocess             Preprocess sources as specified in source_csv
+  process                Create output conservation lands layer
+  run_all                Run complete conservation lands job
 ```
 
 For help regarding an individual command:
@@ -97,6 +97,7 @@ Presuming all manual downloads specified are complete, process all data, then du
 $ python conservationlands.py download --email myemail@email.bc.ca
 $ python conservationlands.py load_manual_downloads
 $ python conservationlands.py clean
+$ python conservationlands.py preprocess
 $ python conservationlands.py process
 $ python conservationlands.py dump
 ```
@@ -115,24 +116,25 @@ $ python conservationlands.py download \
 ```
 
 ### sources.csv
-The file `sources.csv` defines all source layers and how they are processed. Edit this table to customize the analysis. Note that order of the rows is not important, the script will sort the rows by the `hierarchy` column. Columns are as follows:
+The file `sources.csv` defines all source layers and how they are processed. Edit this table to customize the analysis. Note that order of the rows is not important, the script will sort the rows by the **hierarchy** column. Columns are as follows:
 
-| column                 | description                                                                                                                                                                            | 
+| COLUMN                 | DESCRIPTION                                                                                                                                                                            | 
 |------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------| 
-| hierarchy              | An integer defining the importance of the conservation layer relative to other sources. In areas where sources overlap the source with the higher hierarchy value will take precedence. Layers with no hierarchy specified will not be included. Equivalent hierarchy values for different layers are valid. | 
-| manual_download        | Tag as 'T' if a direct download url is not available for the data. Download these sources manually to the downloads folder and ensure that value given for `file_in_url` matches the name of the file in the download folder                                                            | 
-| name                   | Full name of the conservation land category                                                                                                                                                | 
-| alias                  | A Unique underscore separated value used for coding the various conservation category                                                                                                | 
-| rollup                 | A numbered code defining the broader conservation class to which the layer belongs                                                                                                     | 
-| url                    | Download url for the data source                                                                                                                                                       | 
-| file_in_url            | Name of the file of interest in the download from specified url                                                                                                                        | 
-| layer_in_file          | For downloads of multi-layer files - specify the layer of interest within the file                                                                                                     | 
-| query                  | A SQL query defining the subset of data of interest from the given file/layer (SQLite dialect)                                                                                         | 
-| metadata_url           | URL for metadata reference                                                                                                                                                             | 
-| info_url               | Background/info url                                                                                                                                                                    | 
-| preprocess_operation   | Not currently supported                                                                                                                                                                | 
-| preprocess_layer_alias | Not currently supported                                                                                                                                                                | 
-| notes                  | Misc notes related to layer                                                                                                                                                            | 
+| **hierarchy**              | An integer defining the importance of the conservation layer relative to other sources. In areas where sources overlap the source with the higher hierarchy value will take precedence. Equivalent hierarchy values for different layers are valid. Sources required for processing but not included in the conservation lands hierarchy (such as tiling, boundary, or preprocessing layers) should be give a hierarchy value of `0`. | 
+| **exclude**              | Used primarily for testing, a value of `T` will exclude the source from all operations | 
+| **manual_download**        | A value of `T` indicates that a direct download url is not available for the data. Download these sources manually to the downloads folder and ensure that value given for **file_in_url** matches the name of the file in the download folder                                                            | 
+| **name**                   | Full name of the conservation land category                                                                                                                                                | 
+| **alias**                  | A unique underscore separated value used for coding the various conservation categories (eg `park_provincial`)                                                                                                | 
+| **rollup**                 | A number prefixed code defining the broader conservation class to which the layer belongs. Leave blank for non conservation lands sources (tiling, boundary or preprocessing layers)      | 
+| **url**                    | Download url for the data source                                                                                                                                                       | 
+| **file_in_url**            | Name of the file of interest in the download from specified url                                                                                                                        | 
+| **layer_in_file**          | For downloads of multi-layer files - specify the layer of interest within the file                                                                                                     | 
+| **query**                  | A SQL query defining the subset of data of interest from the given file/layer (SQLite dialect)                                                                                         | 
+| **metadata_url**           | URL for metadata reference                                                                                                                                                             | 
+| **info_url**               | Background/info url in addtion to metadata (if available)   | 
+| **preprocess_operation**   | Pre-processing operation to apply to layer (`clip` is the only current supported operation)  | 
+| **preprocess_layer_alias** | `alias` of an additional layer to use in the **preprocess_operation** (for example, to clip a source by the Muskwa-Kechika Management Area boundary, set **preprocess_operation** = `clip` and **preprocess_layer_alias** = `mk_boundary` | 
+| **notes**                  | Misc notes related to layer                                                                                                                                                            | 
 
 ## License
 

@@ -465,19 +465,7 @@ def clean(source_csv, alias):
 @click.option('--source_csv', '-s', default=CONFIG["source_csv"],
               type=click.Path(exists=True), help=HELP['csv'])
 def preprocess(source_csv):
-    """
-    Some input layers require pre-processing.
-    Loop through layers where source["preprocess"] has a value, execute
-    the action specified by that value
-
-    For example, for the layer with these values:
-
-    source["preprocess_operation"] = 'clip'
-    source["preprocess_layer_alias"] = 'mk_boundary'
-
-      - clip the (cleaned) input layer by 'mk_boundary' to temp table
-      - drop the existing cleaned layer
-      - rename the clipped layer to previously existing cleaned layer
+    """Preprocess sources as specified in source_csv
     """
     # process layers where preprocess_operation is not null
     db = pgdb.connect(CONFIG["db_url"])
