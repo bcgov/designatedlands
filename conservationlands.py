@@ -64,11 +64,16 @@ def read_csv(path):
     Returns list of dicts from file, sorted by 'hierarchy' column
     https://stackoverflow.com/questions/72899/
     """
-    source_list = [row for row in csv.DictReader(open(path, 'rb'))]
+    source_list = [source for source in csv.DictReader(open(path, 'rb'))]
     # convert hierarchy value to integer
-    for row in source_list:
-        row.update((k, int(v)) for k, v in row.iteritems()
-                   if k == "hierarchy" and v != '')
+    for source in source_list:
+        source.update((k, int(v)) for k, v in source.iteritems()
+                      if k == "hierarchy" and v != '')
+        # for convenience, add the layer names to the dict
+        hierarchy = str(source["hierarchy"]).zfill(2)
+        clean_layer = "c"+hierarchy+"_"+source["alias"]
+        source.update({"src_table": "src_"+source["alias"],
+                       "clean_layer": clean_layer})
     return sorted(source_list, key=lambda k: k['hierarchy'])
 
 
@@ -283,6 +288,39 @@ def ogr2pg(db, in_file, in_layer=None, out_layer=None,
     subprocess.call(" ".join(command), shell=True)
 
 
+def clip(db, in_table, clip_table):
+    """
+    Clip geometry of in_table by clip_table, overwriting in_table with the
+    output.
+    """
+    columns = ["a."+c for c in db[in_table].columns if c != 'geom']
+    temp_table = CONFIG["schema"]+".temp_clip"
+    db[temp_table].drop()
+    sql = """CREATE UNLOGGED TABLE {temp} AS
+             SELECT
+               {columns},
+               CASE
+                 WHEN ST_CoveredBy(a.geom, b.geom) THEN a.geom
+                 ELSE ST_Multi(
+                        ST_Intersection(a.geom,b.geom)) END AS geom
+             FROM {in_table} AS a
+             INNER JOIN {clip_table} AS b
+             ON ST_Intersects(a.geom, b.geom)
+          """.format(temp=temp_table,
+                     columns=", ".join(columns),
+                     in_table=in_table,
+                     clip_table=clip_table)
+    db.execute(sql)
+    # drop the source table
+    db[in_table].drop()
+    # copy the temp output back to the source
+    db.execute("""CREATE TABLE {t} AS
+                  SELECT * FROM {temp}""".format(t=in_table, temp=temp_table))
+    # re-create indexes
+    db[in_table].create_index_geom()
+    db[in_table].create_index(["id"])
+
+
 def pg2shp(db, sql, out_shp, t_srs='EPSG:3005'):
     """Dump a PostGIS query to shapefile
     """
@@ -411,8 +449,7 @@ def clean(source_csv, alias):
         # Make things easier to find by ordering the layers by hierarchy #
         # Any layers that aren't given a hierarchy number will have c00_
         # as the layer name prefix
-        hierarchy = str(source["hierarchy"]).zfill(2)
-        clean_layer = "c"+hierarchy+"_"+source["alias"]
+        clean_layer = source["clean_layer"]
         clean_table = CONFIG["schema"]+"."+clean_layer
 
         # Drop the table if it already exists
@@ -427,10 +464,9 @@ def clean(source_csv, alias):
 @cli.command()
 @click.option('--source_csv', '-s', default=CONFIG["source_csv"],
               type=click.Path(exists=True), help=HELP['csv'])
-def pre_process(source_csv):
-    """Unsupported
+def preprocess(source_csv):
     """
-    """
+    Some input layers require pre-processing.
     Loop through layers where source["preprocess"] has a value, execute
     the action specified by that value
 
@@ -443,7 +479,21 @@ def pre_process(source_csv):
       - drop the existing cleaned layer
       - rename the clipped layer to previously existing cleaned layer
     """
-    pass
+    # process layers where preprocess_operation is not null
+    db = pgdb.connect(CONFIG["db_url"])
+    sources = read_csv(source_csv)
+    preprocess_sources = [s for s in sources
+                          if s["preprocess_operation"] != '']
+    for source in preprocess_sources:
+        # what is the cleaned name of the pre-process layer?
+        preprocess_layer = [s for s in sources
+                            if s["alias"] == source["preprocess_layer_alias"]][0]
+        preprocess_layer_clean = preprocess_layer["clean_layer"]
+        function = source["preprocess_operation"]
+        # call the specified preprocess function
+        globals()[function](db,
+                            CONFIG["schema"]+"."+source["clean_layer"],
+                            CONFIG["schema"]+"."+preprocess_layer_clean)
 
 
 @cli.command()
@@ -546,7 +596,7 @@ def run_all(source_csv, email, dl_path, out_table, out_shape):
     download(source_csv, email, dl_path)
     load_manual_downloads(source_csv, dl_path)
     clean(source_csv)
-    pre_process(source_csv)
+    preprocess(source_csv)
     process(source_csv, out_table)
     dump(out_shape)
 

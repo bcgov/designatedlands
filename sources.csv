@@ -1,4 +1,4 @@
-hierarchy,exclude,manual_download,preprocess_layer,name,alias,rollup,url,file_in_url,layer_in_file,query,metadata_url,info_url,preprocess_operation,preprocess_layer_alias,notes
+hierarchy,exclude,manual_download,supporting_layer,name,alias,rollup,url,file_in_url,layer_in_file,query,metadata_url,info_url,preprocess_operation,preprocess_layer_alias,notes
 1,,,,Yoho National Park,park_national_yoho,01_PPA,ftp://ftp.nrcan.gc.ca/ess/sgb_pub/sgb_datasets/bc/YOHO_NATIONAL_PARK_OF_CANADA/YOHO_NATIONAL_PARK_OF_CANADA_SHP.zip,Administrative_Area.shp,,,,,,,
 1,,,,Pacific Rim National Park,park_national_pacificrim,01_PPA,ftp://ftp.nrcan.gc.ca/ess/sgb_pub/sgb_datasets/bc/PACIFIC_RIM_NATIONAL_PARK_RESERVE_OF_CANADA/PACIFIC_RIM_NATIONAL_PARK_RESERVE_OF_CANADA_SHP.zip,Administrative_Area.shp,,,,,,,
 1,,,,Mount Revelstoke National Park,park_national_mountrevelstoke,01_PPA,ftp://ftp.nrcan.gc.ca/ess/sgb_pub/sgb_datasets/bc/MOUNT_REVELSTOKE_NATIONAL_PARK_OF_CANADA/MOUNT_REVELSTOKE_NATIONAL_PARK_OF_CANADA_SHP.zip,Administrative_Area.shp,,,,,,,
