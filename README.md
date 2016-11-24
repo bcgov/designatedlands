@@ -44,20 +44,20 @@ Combine conservation related spatial data from many sources to create a single '
 5. Note that on Windows, to install the Fiona dependency you will likely have to manually download the pre-built wheel. [See the Fiona manual for details and a link to the wheel](https://github.com/Toblerity/Fiona#windows). Some further PATH configurations will be required if you are installing Fiona to a Python installed by ArcGIS.
 
 ## Configuration
-To modify the default database/schema/files/folders used to hold the data, edit the `CONFIG` dictionary at the top of `conservationlands.py` The `db_url `value is an [SQLAlchemy connection URL](http://docs.sqlalchemy.org/en/latest/core/engines.html#postgresql) 
+To modify the default database/files/folders used to hold the data, edit the `CONFIG` dictionary at the top of `conservationlands.py` The `db_url `value is an [SQLAlchemy connection URL](http://docs.sqlalchemy.org/en/latest/core/engines.html#postgresql) 
 ```
-CONFIG = {"downloads": "downloads",
+CONFIG = {"source_data": "source_data",
           "source_csv": "sources.csv",
           "out_table": "conservation_lands",
           "out_shp": "conservation_lands.shp",
-          "db_url":  "postgresql://postgres:postgres@localhost:5432/postgis",
-          "schema": "conservation_lands"}
+          "db_url":  "postgresql://postgres:postgres@localhost:5432/conservationlands"}
 ```
+
 
 ## Usage
 The file `sources.csv` defines all layers/data sources to be processed and how the script will process each layer. 
 
-Before running the script, manually download all files defined in `sources.csv` as **manual_download**=`T` to the `downloads` folder.
+Before running the script, manually download all files defined in `sources.csv` as **manual_download**=`T` to the `source_data` folder.
 
 Once data are downloaded, script usage is:
 ```
@@ -67,13 +67,11 @@ Options:
   --help  Show this message and exit.
 
 Commands:
-  clean                  Clean/validate all input data
-  download               Download data, load to postgres
-  dump                   Dump output conservation lands layer to shp
-  load_manual_downloads  Load manually downloaded data to postgres
-  preprocess             Preprocess sources as specified in source_csv
-  process                Create output conservation lands layer
-  run_all                Run complete conservation lands job
+  create_db  Create an empty postgres db for processing
+  dump       Dump output conservation lands layer to shp
+  load       Download data, load to postgres
+  process    Create output conservation lands table
+  run_all    Run complete conservation lands job
 ```
 
 For help regarding an individual command:
@@ -94,10 +92,8 @@ Options:
 ### Examples
 Presuming all manual downloads specified are complete, process all data, then dump the results to shapefile:
 ```
-$ python conservationlands.py download --email myemail@email.bc.ca
-$ python conservationlands.py load_manual_downloads
-$ python conservationlands.py clean
-$ python conservationlands.py preprocess
+$ python conservationlands.py create_db
+$ python conservationlands.py load --email myemail@email.bc.ca
 $ python conservationlands.py process
 $ python conservationlands.py dump
 ```
@@ -106,9 +102,9 @@ Or, run all the above steps in a single command:
 $ python conservationlands.py run_all
 ```
 
-Most commands allow the user to specify inputs other than the default. For example, to download a single layer with **alias**=`park_provincial` as defined in a file `newparks_sources.csv` to the folder `newparks_download`, and copy to postgres:
+Most commands allow the user to specify inputs other than the default. For example, to load a single layer with **alias**=`park_provincial` as defined in a file `newparks_sources.csv` to the folder `newparks_download`, and copy to postgres:
 ```
-$ python conservationlands.py download \
+$ python conservationlands.py load \
   -a park_provincial \
   -s newparks_sources.csv \
   --email myemail@email.bc.ca \

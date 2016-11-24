@@ -9,6 +9,8 @@ import tarfile
 import csv
 import subprocess
 import hashlib
+from multiprocessing import Pool
+from functools import partial
 
 import requests
 import click
@@ -21,14 +23,17 @@ import pgdb
 # --------------------------------------------
 # Change default database/paths/filenames etc here
 # --------------------------------------------
-CONFIG = {"downloads": "downloads",
-          "source_csv": "sources.csv",
-          "out_table": "conservation_lands",
-          "out_shp": "conservation_lands.shp",
-          # sqlalchemy postgresql database url
-          # http://docs.sqlalchemy.org/en/latest/core/engines.html#postgresql
-          "db_url":  "postgresql://postgres:postgres@localhost:5432/postgis",
-          "schema": "conservation_lands"}
+CONFIG = {
+    "source_data": "source_data",
+    "source_csv": "sources.csv",
+    "out_table": "conservation_lands",
+    "out_shp": "conservation_lands.shp",
+    # sqlalchemy postgresql database url
+    # http://docs.sqlalchemy.org/en/latest/core/engines.html#postgresql
+    "db_url":
+    "postgresql://postgres:postgres@localhost:5432/conservationlands",
+    "n_processes": 3
+    }
 # --------------------------------------------
 # --------------------------------------------
 
@@ -71,9 +76,9 @@ def read_csv(path):
                       if k == "hierarchy" and v != '')
         # for convenience, add the layer names to the dict
         hierarchy = str(source["hierarchy"]).zfill(2)
-        clean_layer = "c"+hierarchy+"_"+source["alias"]
-        source.update({"src_table": "src_"+source["alias"],
-                       "clean_layer": clean_layer})
+        clean_table = "c"+hierarchy+"_"+source["alias"]
+        source.update({"src_table": source["alias"],
+                       "clean_table": clean_table})
     return sorted(source_list, key=lambda k: k['hierarchy'])
 
 
@@ -294,7 +299,7 @@ def clip(db, in_table, clip_table):
     output.
     """
     columns = ["a."+c for c in db[in_table].columns if c != 'geom']
-    temp_table = CONFIG["schema"]+".temp_clip"
+    temp_table = "temp_clip"
     db[temp_table].drop()
     sql = """CREATE UNLOGGED TABLE {temp} AS
              SELECT
@@ -310,6 +315,7 @@ def clip(db, in_table, clip_table):
                      columns=", ".join(columns),
                      in_table=in_table,
                      clip_table=clip_table)
+    info('Clipping %s by %s' % (in_table, clip_table))
     db.execute(sql)
     # drop the source table
     db[in_table].drop()
@@ -319,6 +325,114 @@ def clip(db, in_table, clip_table):
     # re-create indexes
     db[in_table].create_index_geom()
     db[in_table].create_index(["id"])
+
+
+def get_tiles(db, table, tile_table="tiles_250k"):
+    """Return a list of all tiles intersecting the given table's geom
+    """
+    sql = """SELECT DISTINCT b.map_tile
+             FROM {table} a
+             INNER JOIN {tile_table} b ON st_intersects(b.geom, a.geom)
+             ORDER BY map_tile
+          """.format(table=table,
+                     tile_table=tile_table)
+    return [r[0] for r in db.query(sql)]
+
+
+def clean(source):
+    db = pgdb.connect(CONFIG["db_url"], schema="public")
+    info("Cleaning %s" % source["alias"])
+    db[source["clean_table"]].drop()
+    lookup = {"out_table": source["clean_table"],
+              "src_table": source["src_table"]}
+    sql = db.build_query(db.queries["clean"], lookup)
+    db.execute(sql)
+
+
+def preprocess(db, source_csv, n_processes):
+    """
+    Before running the main processing job:
+      - create comprehensive tiling layer
+      - preprocess sources as specified in source_csv
+    """
+    sources = read_csv(source_csv)
+
+    # create tile layer
+    db.execute(db.queries["create_tiles"])
+
+    # for all conservation lands sources:
+    # - union/merge polygons
+    # - create new table name prefixed with hierarchy
+    # - retain just a single column (category), value equivalent to table name
+    clean_sources = [s for s in sources
+                     if s["exclude"] != 'T' and s['hierarchy'] != 0]
+    for source in clean_sources:
+        info("Tiling, dissolving and validating %s" % source["alias"])
+        db[source["clean_table"]].drop()
+        lookup = {"out_table": source["clean_table"],
+                  "src_table": source["src_table"]}
+        sql = db.build_query(db.queries["clean"], lookup)
+        db.execute(sql)
+
+    # rather than looping, enable multiprocessing of the clean job
+    #pool = Pool(processes=n_processes)
+    #pool.map(clean, clean_sources)
+    #pool.close()
+    #pool.join()
+
+    # apply pre-processing operation specified in sources.csv
+    preprocess_sources = [s for s in sources
+                          if s["preprocess_operation"] != '']
+    for source in preprocess_sources:
+        # what is the cleaned name of the pre-process layer?
+        preprocess_lyr = [s for s in sources
+                          if s["alias"] == source["preprocess_layer_alias"]][0]
+        function = source["preprocess_operation"]
+        # call the specified preprocess function
+        globals()[function](db,
+                            source["clean_table"],
+                            preprocess_lyr["alias"])
+
+
+def run_overlay(sql, tile):
+    """Call the query that populates the output layer via multiprocessing
+    """
+    db = pgdb.connect(CONFIG["db_url"], schema="public")
+    db.execute(sql, (tile+"%", tile))
+
+
+def postprocess(db, sources, out_table):
+    """Postprocess the output conservation lands table
+    """
+    # add rollup column by creating lookup table from source.csv
+    lookup_data = [dict(alias=s["clean_table"],
+                        rollup=s["rollup"])
+                   for s in sources if s["rollup"]]
+    # create lookup table
+    db["rollup_lookup"].drop()
+    db.execute("""CREATE TABLE rollup_lookup
+                  (id SERIAL PRIMARY KEY, alias TEXT, rollup TEXT)""")
+    db["rollup_lookup"].insert(lookup_data)
+
+    # add rollup column
+    if "rollup" not in db[out_table].columns:
+        db.execute("""ALTER TABLE {t}
+                      ADD COLUMN rollup TEXT
+                   """.format(t=out_table))
+
+    # populate rollup column from lookup
+    db.execute("""UPDATE {t} AS o
+                  SET rollup = lut.rollup
+                  FROM rollup_lookup AS lut
+                  WHERE o.category = lut.alias
+               """.format(t=out_table))
+
+    # Remove national park names from the national park tags
+    sql = """UPDATE {t}
+             SET category = 'c01_park_national'
+             WHERE category LIKE 'c01_park_national%'
+          """.format(t=out_table)
+    db.execute(sql)
 
 
 def pg2shp(db, sql, out_shp, t_srs='EPSG:3005'):
@@ -344,18 +458,31 @@ def cli():
 
 
 @cli.command()
+@click.option('--drop', '-d', is_flag=True, help="Drop the existing database")
+def create_db(drop):
+    """Create an empty postgres db for processing
+    """
+    parsed_url = urlparse(CONFIG["db_url"])
+    db_name = parsed_url.path
+    db_name = db_name.strip('/')
+    db = pgdb.connect("postgresql://"+parsed_url.netloc)
+    if drop:
+        db.execute("DROP DATABASE "+db_name)
+    db.execute("CREATE DATABASE "+db_name)
+    db = pgdb.connect(CONFIG["db_url"])
+    db.execute("CREATE EXTENSION postgis")
+
+
+@cli.command()
 @click.option('--source_csv', '-s', default=CONFIG["source_csv"],
               type=click.Path(exists=True), help=HELP['csv'])
 @click.option('--email', help=HELP['email'])
-@click.option('--dl_path', default=CONFIG["downloads"],
+@click.option('--dl_path', default=CONFIG["source_data"],
               type=click.Path(exists=True), help=HELP['dl_path'])
 @click.option('--alias', '-a', help=HELP['alias'])
-def download(source_csv, email, dl_path, alias):
+def load(source_csv, email, dl_path, alias):
     """Download data, load to postgres
     """
-    # create download path if it doesn't exist
-    make_sure_path_exists(dl_path)
-
     sources = read_csv(source_csv)
 
     # only try and download data where scripted download is supported
@@ -368,10 +495,7 @@ def download(source_csv, email, dl_path, alias):
     if alias:
         sources = [s for s in sources if s["alias"] == alias]
 
-    # connect to postgres database, create working schema if it doesn't exist
     db = pgdb.connect(CONFIG["db_url"])
-    db.create_schema(CONFIG["schema"])
-
     for source in sources:
         info("Downloading %s" % source["alias"])
 
@@ -399,89 +523,22 @@ def download(source_csv, email, dl_path, alias):
         ogr2pg(db,
                file,
                in_layer=layer,
-               out_layer="src_"+source["alias"],
-               schema=CONFIG["schema"],
+               out_layer=source["alias"],
                sql=source["query"])
 
-
-@cli.command()
-@click.option('--source_csv', '-s', default=CONFIG["source_csv"],
-              type=click.Path(exists=True), help=HELP['csv'])
-@click.option('--dl_path', default=CONFIG["downloads"], help=HELP['dl_path'])
-def load_manual_downloads(source_csv, dl_path):
-    """Load manually downloaded data to postgres
-    """
-    db = pgdb.connect(CONFIG["db_url"])
-    # create schema if it doesn't exist
-    db.create_schema(CONFIG["schema"])
+    # Load manually downloaded data to postgres
     sources = read_csv(source_csv)
     sources = [s for s in sources if s["manual_download"] == 'T']
     for source in sources:
         file = os.path.join(dl_path, source["file_in_url"])
+        if not os.path.exists(file):
+            raise Exception(file+" does not exist, download it manually")
         layer = source["layer_in_file"]
         ogr2pg(db,
                file,
                in_layer=layer,
-               out_layer="src_"+source["alias"],
-               schema=CONFIG["schema"],
+               out_layer=source["alias"],
                sql=source["query"])
-
-
-@cli.command()
-@click.option('--source_csv', '-s', default=CONFIG["source_csv"],
-              type=click.Path(exists=True), help=HELP['csv'])
-@click.option('--alias', '-a', help=HELP['alias'])
-def clean(source_csv, alias):
-    """Clean/validate all input data
-    """
-    db = pgdb.connect(CONFIG["db_url"])
-    sources = read_csv(source_csv)
-
-    # if provided an alias, only clean that single layer
-    if alias:
-        sources = [s for s in sources if s["alias"] == alias]
-
-    # ignore the layers that are flagged as excluded
-    sources = [s for s in sources if s["exclude"] != 'T']
-
-    for source in sources:
-        info("Cleaning %s" % source["alias"])
-        # Make things easier to find by ordering the layers by hierarchy #
-        # Any layers that aren't given a hierarchy number will have c00_
-        # as the layer name prefix
-        clean_layer = source["clean_layer"]
-        clean_table = CONFIG["schema"]+"."+clean_layer
-
-        # Drop the table if it already exists
-        db[clean_table].drop()
-        lookup = {"out_table": clean_table,
-                  "layer": clean_layer,
-                  "source": CONFIG["schema"]+".src_"+source["alias"]}
-        sql = db.build_query(db.queries["clean"], lookup)
-        db.execute(sql)
-
-
-@cli.command()
-@click.option('--source_csv', '-s', default=CONFIG["source_csv"],
-              type=click.Path(exists=True), help=HELP['csv'])
-def preprocess(source_csv):
-    """Preprocess sources as specified in source_csv
-    """
-    # process layers where preprocess_operation is not null
-    db = pgdb.connect(CONFIG["db_url"])
-    sources = read_csv(source_csv)
-    preprocess_sources = [s for s in sources
-                          if s["preprocess_operation"] != '']
-    for source in preprocess_sources:
-        # what is the cleaned name of the pre-process layer?
-        preprocess_layer = [s for s in sources
-                            if s["alias"] == source["preprocess_layer_alias"]][0]
-        preprocess_layer_clean = preprocess_layer["clean_layer"]
-        function = source["preprocess_operation"]
-        # call the specified preprocess function
-        globals()[function](db,
-                            CONFIG["schema"]+"."+source["clean_layer"],
-                            CONFIG["schema"]+"."+preprocess_layer_clean)
 
 
 @cli.command()
@@ -491,67 +548,53 @@ def preprocess(source_csv):
               help=HELP["out_table"])
 @click.option('--resume', '-r',
               help='hierarchy number at which to resume processing')
-def process(source_csv, out_table, resume):
-    """Create output conservation lands layer
+@click.option('--no_preprocess', is_flag=True)
+@click.option('--n_processes', '-p', default=CONFIG["n_processes"],
+              help="Number of parallel processing threads to utilize")
+def process(source_csv, out_table, resume, no_preprocess, n_processes):
+    """Create output conservation lands table
     """
-    db = pgdb.connect(CONFIG["db_url"])
-    out_table = CONFIG["schema"]+"."+out_table
+    db = pgdb.connect(CONFIG["db_url"], schema="public")
+
+    # run any required pre-processing
+    # (no_preprocess flag is for development)
+    if not no_preprocess:
+        preprocess(db, source_csv, n_processes)
+
+    # create output table if not resuming from a bailed process
     if not resume:
-        db[CONFIG["schema"]+"."+out_table].drop()
+        # create output table
+        db[out_table].drop()
         db.execute(db.build_query(db.queries['create_output'],
                                   {"table": out_table}))
-        db[out_table].create_index_geom()
 
-    # use only sources that have a hierarchy number
-    sources = [s for s in read_csv(source_csv) if s['hierarchy']]
+    # filter sources - use only non-exlcuded sources with hierarchy > 0
+    sources = [s for s in read_csv(source_csv)
+               if s['hierarchy'] != 0 and s["exclude"] != 'T']
 
-    # if resume option is specified, resume processing at specified layer
+    # in case of bailing during tests/development, specify resume option to
+    # resume processing at specified hierarchy number
     if resume:
         sources = [s for s in sources if int(s["hierarchy"]) >= int(resume)]
 
-    # ignore the layers that are flagged as excluded
-    sources = [s for s in sources if s["exclude"] != 'T']
-
+    # iterate through all sources
     for source in sources:
         info("Inserting %s into output" % source["alias"])
         hierarchy = str(source["hierarchy"]).zfill(2)
-        in_table = CONFIG["schema"]+".c"+hierarchy+"_"+source["alias"]
+        in_table = "c"+hierarchy+"_"+source["alias"]
         sql = db.build_query(db.queries["populate_output"],
-                             {"input": in_table,
-                              "output": out_table})
-        db.execute(sql)
+                             {"in_table": in_table,
+                              "out_table": out_table})
+        # process 250k tiles in parallel
+        tiles = get_tiles(db, in_table)
+        func = partial(run_overlay, sql)
+        pool = Pool(processes=n_processes)
+        pool.map(func, tiles)
+        pool.close()
+        pool.join()
 
-    # add rollup column by creating lookup table from source.csv
-    lookup_data = [dict(alias="c"+str(s["hierarchy"]).zfill(2)+"_"+s["alias"],
-                        rollup=s["rollup"])
-                   for s in sources if s["rollup"]]
-    # create lookup table
-    db[CONFIG["schema"]+".rollup_lookup"].drop()
-    db.execute("""CREATE TABLE {s}.rollup_lookup
-                  (id SERIAL PRIMARY KEY, alias TEXT, rollup TEXT)
-               """.format(s=CONFIG["schema"]))
-    db[CONFIG["schema"]+".rollup_lookup"].insert(lookup_data)
-
-    # add rollup column
-    if "rollup" not in db[out_table].columns:
-        db.execute("""ALTER TABLE {t}
-                      ADD COLUMN rollup TEXT
-                   """.format(t=out_table))
-
-    # populate rollup column from lookup
-    db.execute("""UPDATE {t} AS o
-                  SET rollup = lut.rollup
-                  FROM {s}.rollup_lookup AS lut
-                  WHERE o.category = lut.alias
-               """.format(t=out_table,
-                          s=CONFIG["schema"]))
-
-    # Remove national park names from the national park tags
-    sql = """UPDATE {t}
-             SET category = 'park_national'
-             WHERE category LIKE 'park_national%'
-          """.format(t=out_table)
-    db.execute(sql)
+    # clean up the output
+    postprocess(db, sources, out_table)
 
 
 @cli.command()
@@ -573,7 +616,7 @@ def dump(out_table, out_shape):
 @click.option('--source_csv', '-s', default=CONFIG["source_csv"],
               type=click.Path(exists=True), help=HELP['csv'])
 @click.option('--email', help=HELP['email'])
-@click.option('--dl_path', default=CONFIG["downloads"],
+@click.option('--dl_path', default=CONFIG["source_data"],
               type=click.Path(exists=True), help=HELP['dl_path'])
 @click.option('--out_table', default=CONFIG["out_table"],
               help=HELP['out_table'])
@@ -581,10 +624,8 @@ def dump(out_table, out_shape):
 def run_all(source_csv, email, dl_path, out_table, out_shape):
     """ Run complete conservation lands job
     """
-    download(source_csv, email, dl_path)
-    load_manual_downloads(source_csv, dl_path)
-    clean(source_csv)
-    preprocess(source_csv)
+    create_db()
+    load(source_csv, email, dl_path)
     process(source_csv, out_table)
     dump(out_shape)
 
