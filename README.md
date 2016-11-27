@@ -44,15 +44,26 @@ Combine conservation related spatial data from many sources to create a single '
 5. Note that on Windows, to install the Fiona dependency you will likely have to manually download the pre-built wheel. [See the Fiona manual for details and a link to the wheel](https://github.com/Toblerity/Fiona#windows). Some further PATH configurations will be required if you are installing Fiona to a Python installed by ArcGIS.
 
 ## Configuration
-To modify the default database/files/folders used to hold the data, edit the `CONFIG` dictionary at the top of `conservationlands.py` The `db_url `value is an [SQLAlchemy connection URL](http://docs.sqlalchemy.org/en/latest/core/engines.html#postgresql) 
+To modify the default database/files/folders used to hold the data, edit the `CONFIG` dictionary at the top of `conservationlands.py`  
+
+
 ```
 CONFIG = {"source_data": "source_data",
           "source_csv": "sources.csv",
           "out_table": "conservation_lands",
           "out_shp": "conservation_lands.shp",
-          "db_url":  "postgresql://postgres:postgres@localhost:5432/conservationlands"}
+          "db_url":  "postgresql://postgres:postgres@localhost:5432/conservationlands",
+          "n_processes": -1}
 ```
 
+| KEY       | VALUE                                            |
+|-----------|--------------------------------------------------| 
+| `source_data`| path to folder that holds downloaded datasets |
+| `source_csv`| path to file that holds all data source definitions |
+| `out_table`| name of output table to create in postgres |
+| `out_gdb`| path to output geodatabase |
+| `db_url`| [SQLAlchemy connection URL](http://docs.sqlalchemy.org/en/latest/core/engines.html#postgresql) pointing to the postgres database
+| `n_processes`| The inputs are broken up by tile and processed in parallel, define how many parallel processes to use. (default of -1 indicates number of cores on your machine minus one)|
 
 ## Usage
 The file `sources.csv` defines all layers/data sources to be processed and how the script will process each layer. 

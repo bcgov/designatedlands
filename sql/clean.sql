@@ -1,19 +1,21 @@
 -- Clean input data
--- (simply union all features and try and try to make sure they are vaild)
+--   - union/merge all input geometries
+--   - cut by tiles layer
+--   - attempt to validate geometry
 
 -- create empty table with new auto-indexed id column
 CREATE UNLOGGED TABLE IF NOT EXISTS $out_table (
      id serial PRIMARY KEY,
-     category text,
+     designation text,
      map_tile text,
      geom geometry
 );
 
 -- insert cleaned data
-INSERT INTO $out_table (category, map_tile, geom)
-  SELECT category, map_tile, geom
+INSERT INTO $out_table (designation, map_tile, geom)
+  SELECT designation, map_tile, geom
   FROM (SELECT
-          '$out_table'::TEXT as category,
+          '$out_table'::TEXT as designation,
           b.map_tile,
   -- make sure the output is valid
           st_makevalid(
@@ -42,7 +44,7 @@ INSERT INTO $out_table (category, map_tile, geom)
             )).geom) as geom
         FROM $src_table a
         INNER JOIN tiles b ON ST_Intersects(a.geom, b.geom)
-        GROUP BY category, map_tile) as foo;
+        GROUP BY designation, map_tile) as foo;
 
 -- index for speed
 CREATE INDEX $out_table_gix ON $out_table USING GIST (geom);

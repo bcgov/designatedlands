@@ -9,9 +9,12 @@ import tarfile
 import csv
 import subprocess
 import hashlib
-from multiprocessing import Pool
+import multiprocessing
 from functools import partial
+from xml.sax.saxutils import escape
 
+from sqlalchemy.schema import Column
+from sqlalchemy.types import Integer
 import requests
 import click
 import fiona
@@ -21,18 +24,16 @@ import pgdb
 
 
 # --------------------------------------------
-# Change default database/paths/filenames etc here
+# Change default database/paths/filenames etc here (see README.md)
 # --------------------------------------------
 CONFIG = {
     "source_data": "source_data",
     "source_csv": "sources.csv",
-    "out_table": "conservation_lands",
-    "out_shp": "conservation_lands.shp",
-    # sqlalchemy postgresql database url
-    # http://docs.sqlalchemy.org/en/latest/core/engines.html#postgresql
+    "out_table": "conservationlands",
+    "out_gdb": "conservationlands.gdb",
     "db_url":
     "postgresql://postgres:postgres@localhost:5432/conservationlands",
-    "n_processes": 3
+    "n_processes": -1
     }
 # --------------------------------------------
 # --------------------------------------------
@@ -46,7 +47,7 @@ HELP = {
   "email": 'a valid email address to use for DataBC downloads',
   "dl_path": 'path to folder for saving downloaded data',
   "alias": "the 'alias' key identifing the layer of interest, from source csv",
-  "out_shape": "Name of output conservation lands shapefile",
+  "out_gdb": "Name of output conservation lands geodatabase",
   "out_table": 'name of output conservation lands postgresql table'}
 
 
@@ -293,42 +294,8 @@ def ogr2pg(db, in_file, in_layer=None, out_layer=None,
     subprocess.call(" ".join(command), shell=True)
 
 
-def clip(db, in_table, clip_table):
-    """
-    Clip geometry of in_table by clip_table, overwriting in_table with the
-    output.
-    """
-    columns = ["a."+c for c in db[in_table].columns if c != 'geom']
-    temp_table = "temp_clip"
-    db[temp_table].drop()
-    sql = """CREATE UNLOGGED TABLE {temp} AS
-             SELECT
-               {columns},
-               CASE
-                 WHEN ST_CoveredBy(a.geom, b.geom) THEN a.geom
-                 ELSE ST_Multi(
-                        ST_Intersection(a.geom,b.geom)) END AS geom
-             FROM {in_table} AS a
-             INNER JOIN {clip_table} AS b
-             ON ST_Intersects(a.geom, b.geom)
-          """.format(temp=temp_table,
-                     columns=", ".join(columns),
-                     in_table=in_table,
-                     clip_table=clip_table)
-    info('Clipping %s by %s' % (in_table, clip_table))
-    db.execute(sql)
-    # drop the source table
-    db[in_table].drop()
-    # copy the temp output back to the source
-    db.execute("""CREATE TABLE {t} AS
-                  SELECT * FROM {temp}""".format(t=in_table, temp=temp_table))
-    # re-create indexes
-    db[in_table].create_index_geom()
-    db[in_table].create_index(["id"])
-
-
 def get_tiles(db, table, tile_table="tiles_250k"):
-    """Return a list of all tiles intersecting the given table's geom
+    """Return a list of all intersecting tiles from specified layer
     """
     sql = """SELECT DISTINCT b.map_tile
              FROM {table} a
@@ -339,17 +306,14 @@ def get_tiles(db, table, tile_table="tiles_250k"):
     return [r[0] for r in db.query(sql)]
 
 
-def clean(source):
+def parallel_tiled(sql, tile):
+    """Create a connection and execute query for specified tile
+    """
     db = pgdb.connect(CONFIG["db_url"], schema="public")
-    info("Cleaning %s" % source["alias"])
-    db[source["clean_table"]].drop()
-    lookup = {"out_table": source["clean_table"],
-              "src_table": source["src_table"]}
-    sql = db.build_query(db.queries["clean"], lookup)
-    db.execute(sql)
+    db.execute(sql, (tile+"%", tile+"%"))
 
 
-def preprocess(db, source_csv, n_processes):
+def preprocess(db, source_csv):
     """
     Before running the main processing job:
       - create comprehensive tiling layer
@@ -363,22 +327,16 @@ def preprocess(db, source_csv, n_processes):
     # for all conservation lands sources:
     # - union/merge polygons
     # - create new table name prefixed with hierarchy
-    # - retain just a single column (category), value equivalent to table name
+    # - retain just one column (designation), value equivalent to table name
     clean_sources = [s for s in sources
                      if s["exclude"] != 'T' and s['hierarchy'] != 0]
     for source in clean_sources:
-        info("Tiling, dissolving and validating %s" % source["alias"])
+        info("Tiling - dissolving - validating: %s" % source["alias"])
         db[source["clean_table"]].drop()
         lookup = {"out_table": source["clean_table"],
                   "src_table": source["src_table"]}
         sql = db.build_query(db.queries["clean"], lookup)
         db.execute(sql)
-
-    # rather than looping, enable multiprocessing of the clean job
-    #pool = Pool(processes=n_processes)
-    #pool.map(clean, clean_sources)
-    #pool.close()
-    #pool.join()
 
     # apply pre-processing operation specified in sources.csv
     preprocess_sources = [s for s in sources
@@ -394,62 +352,219 @@ def preprocess(db, source_csv, n_processes):
                             preprocess_lyr["alias"])
 
 
-def run_overlay(sql, tile):
-    """Call the query that populates the output layer via multiprocessing
+def create_bc_boundary(db):
     """
-    db = pgdb.connect(CONFIG["db_url"], schema="public")
-    db.execute(sql, (tile+"%", tile))
+    Create a comprehensive land-marine layer by combining three sources.
+
+    Note that specificly named source layers are hard coded and must exist:
+    - bc_boundary_land (BC boundary layer from GeoBC, does not include marine)
+    - bc_abms (BC Boundary, ABMS)
+    - marine_ecosections (BC Marine Ecosections)
+    """
+    # create land/marine definition table
+    target_table = "bc_boundary"
+    db[target_table].drop()
+    db.execute(db.build_query(db.queries['create_target'],
+                              {"table": target_table}))
+    # Prep boundary sources and insert into out layer
+    # First, combine ABMS boundary and marine ecosections
+    db["bc_boundary_marine"].drop()
+    db.execute("""CREATE TABLE bc_boundary_marine AS
+                  SELECT
+                    'bc_boundary_marine' as designation,
+                     ST_Union(geom) as geom FROM
+                      (SELECT st_union(geom) as geom
+                       FROM bc_abms
+                       UNION ALL
+                       SELECT st_union(geom) as geom
+                       FROM marine_ecosections) as foo
+                   GROUP BY designation""")
+
+    for source in ["bc_boundary_land", "bc_boundary_marine"]:
+        info('Prepping and inserting into bc_boundary: %s' % source)
+        # subdivide before attempting to tile
+        db["temp_"+source].drop()
+        db.execute("""CREATE UNLOGGED TABLE temp_{t} AS
+                      SELECT ST_Subdivide(geom) as geom
+                      FROM {t}""".format(t=source))
+        db["temp_"+source].create_index_geom()
+        # tile
+        db[source+"_tiled"].drop()
+        lookup = {"src_table": "temp_"+source,
+                  "out_table": source+"_tiled"}
+        sql = db.build_query(db.queries["clean"], lookup)
+        db.execute(db.build_query(db.queries["clean"], lookup))
+        db["temp_"+source].drop()
+
+        # combine the boundary layers into new table bc_boundary
+        sql = db.build_query(db.queries["populate_target"],
+                             {"in_table": source+"_tiled",
+                              "out_table": "bc_boundary"})
+        tiles = get_tiles(db, source+"_tiled")
+        func = partial(parallel_tiled, sql)
+        pool = multiprocessing.Pool(processes=3)
+        pool.map(func, tiles)
+        pool.close()
+        pool.join()
+
+    # rename the 'designation' column
+    db.execute("""ALTER TABLE bc_boundary
+                  RENAME COLUMN designation TO bc_boundary""")
+
+
+def intersect(db, in_table, intersect_table, out_table):
+    """
+    Intersect in_table with intersect_table, creating out_table
+    Inputs may not have equivalently named columns
+    """
+    # examine the inputs to determine what columns should be in the output
+    in_columns = [Column(c.name, c.type) for c in db[in_table].sqla_columns]
+    intersect_columns = [Column(c.name, c.type)
+                         for c in db[intersect_table].sqla_columns
+                         if c.name not in ['geom', 'map_tile']]
+    # make sure output column names are unique, removing geom and map_tile from
+    # the list as they are hard coded into the query
+    in_names = set([c.name for c in in_columns
+                    if c.name != 'geom' and c.name != 'map_tile'])
+    intersect_names = set([c.name for c in intersect_columns])
+
+    # test for non-unique columns in input (other than map_tile and geom)
+    non_unique_columns = in_names.intersection(intersect_names)
+    if non_unique_columns:
+        info('Column(s) found in both sources: %s' %
+             ",".join(non_unique_columns))
+        raise Exception("Input column names must be unique")
+    # create output table
+    db[out_table].drop()
+    # add primary key
+    pk = Column(out_table+"_id", Integer, primary_key=True)
+    pgdb.Table(db, "public", out_table, [pk]+in_columns+intersect_columns)
+    # populate the output table
+    sql = db.build_query(db.queries["intersect"],
+                         {"in_table": in_table,
+                          "in_columns": ", ".join(in_names),
+                          "intersect_table": intersect_table,
+                          "intersect_columns": ", ".join(intersect_names),
+                          "out_table": out_table})
+    tiles = get_tiles(db, intersect_table)
+    func = partial(parallel_tiled, sql)
+    pool = multiprocessing.Pool(processes=3)
+    pool.map(func, tiles)
+    pool.close()
+    pool.join()
 
 
 def postprocess(db, sources, out_table):
     """Postprocess the output conservation lands table
     """
-    # add rollup column by creating lookup table from source.csv
+    # add category (rollup) column by creating lookup table from source.csv
     lookup_data = [dict(alias=s["clean_table"],
-                        rollup=s["rollup"])
-                   for s in sources if s["rollup"]]
+                        category=s["category"])
+                   for s in sources if s["category"]]
     # create lookup table
-    db["rollup_lookup"].drop()
-    db.execute("""CREATE TABLE rollup_lookup
-                  (id SERIAL PRIMARY KEY, alias TEXT, rollup TEXT)""")
-    db["rollup_lookup"].insert(lookup_data)
+    db["category_lookup"].drop()
+    db.execute("""CREATE TABLE category_lookup
+                  (id SERIAL PRIMARY KEY, alias TEXT, category TEXT)""")
+    db["category_lookup"].insert(lookup_data)
 
-    # add rollup column
-    if "rollup" not in db[out_table].columns:
+    # add category column
+    if "category" not in db[out_table+"_prelim"].columns:
         db.execute("""ALTER TABLE {t}
-                      ADD COLUMN rollup TEXT
-                   """.format(t=out_table))
+                      ADD COLUMN category TEXT
+                   """.format(t=out_table+"_prelim"))
 
-    # populate rollup column from lookup
+    # populate category column from lookup
     db.execute("""UPDATE {t} AS o
-                  SET rollup = lut.rollup
-                  FROM rollup_lookup AS lut
-                  WHERE o.category = lut.alias
-               """.format(t=out_table))
+                  SET category = lut.category
+                  FROM category_lookup AS lut
+                  WHERE o.designation = lut.alias
+               """.format(t=out_table+"_prelim"))
 
     # Remove national park names from the national park tags
     sql = """UPDATE {t}
-             SET category = 'c01_park_national'
-             WHERE category LIKE 'c01_park_national%'
-          """.format(t=out_table)
+             SET designation = 'c01_park_national'
+             WHERE designation LIKE 'c01_park_national%'
+          """.format(t=out_table+"_prelim")
     db.execute(sql)
+    # create marine-terrestrial layer
+    create_bc_boundary(db)
+    # overlay output with marine-terrestrial layer
+    info('Cutting output layer with marine-terrestrial definition')
+    intersect(db, out_table+"_prelim", "bc_boundary", out_table)
 
 
-def pg2shp(db, sql, out_shp, t_srs='EPSG:3005'):
-    """Dump a PostGIS query to shapefile
+def pg2ogr(db_url, sql, driver, outfile, outlayer=None, column_remap=None,
+           geom_type=None):
     """
-    command = ['ogr2ogr',
-               '-t_srs '+t_srs,
-               '-lco OVERWRITE=YES',
-               out_shp,
-               '''PG:"host={h} user={u} dbname={db} password={pwd}"'''.format(
-                  h=db.host,
-                  u=db.user,
-                  db=db.database,
-                  pwd=db.password),
-               '-sql "'+sql+'"']
-    info('Dumping data to %s' % out_shp)
-    subprocess.call(" ".join(command), shell=True)
+    A wrapper around ogr2ogr, for quickly dumping a postgis query to file.
+    Suppported formats are ["ESRI Shapefile", "GeoJSON", "FileGDB"]
+       - for GeoJSON, transforms to EPSG:4326
+       - for Shapefile, consider supplying a column_remap dict
+       - for FileGDB, geom_type is required
+         (https://trac.osgeo.org/gdal/ticket/4186)
+    """
+    filename, ext = os.path.splitext(outfile)
+    if not outlayer:
+        outlayer = filename
+    u = urlparse(db_url)
+    pgcred = 'host={h} user={u} dbname={db} password={p}'.format(h=u.hostname,
+                                                                 u=u.username,
+                                                                 db=u.path[1:],
+                                                                 p=u.password)
+    # use a VRT so we can remap columns if a lookoup is provided
+    if column_remap:
+        # if specifiying output field names, all fields have to be specified
+        # rather than try and parse the input sql, just do a test run of the
+        # query and grab column names from that
+        db = pgdb.connect(db_url)
+        columns = [c for c in db.engine.execute(sql).keys() if c != 'geom']
+        # make sure all columns are represented in the remap
+        for c in columns:
+            if c not in column_remap.keys():
+                column_remap[c] = c
+        field_remap_xml = " \n".join([
+            '<Field name="'+column_remap[c]+'" src="'+c+'"/>'
+            for c in columns])
+    else:
+        field_remap_xml = ""
+    vrt = """<OGRVRTDataSource>
+               <OGRVRTLayer name="{layer}">
+                 <SrcDataSource>PG:{pgcred}</SrcDataSource>
+                 <SrcSQL>{sql}</SrcSQL>
+               {fieldremap}
+               </OGRVRTLayer>
+             </OGRVRTDataSource>
+          """.format(layer=outlayer,
+                     sql=escape(sql.replace("\n", " ")),
+                     pgcred=pgcred,
+                     fieldremap=field_remap_xml)
+    vrtpath = os.path.join(tempfile.gettempdir(), filename+".vrt")
+    if os.path.exists(vrtpath):
+        os.remove(vrtpath)
+    with open(vrtpath, "w") as vrtfile:
+        vrtfile.write(vrt)
+    # allow appending to filegdb and specify the geometry type
+    if driver == 'FileGDB':
+        nlt = "-nlt "+geom_type
+        append = "-append"
+    else:
+        nlt = ""
+        append = ""
+    command = """ogr2ogr \
+                    -progress \
+                    -f "{driver}" {nlt} {append}\
+                    {outfile} \
+                    {vrt}
+              """.format(driver=driver,
+                         nlt=nlt,
+                         append=append,
+                         outfile=outfile,
+                         vrt=vrtpath)
+    # translate GeoJSON to EPSG:4326
+    if driver == 'GeoJSON':
+        command = command.replace("""-f "GeoJSON" """,
+                                  """-f "GeoJSON" -t_srs EPSG:4326""")
+    subprocess.call(command, shell=True)
 
 
 @click.group()
@@ -483,20 +598,16 @@ def create_db(drop):
 def load(source_csv, email, dl_path, alias):
     """Download data, load to postgres
     """
+    db = pgdb.connect(CONFIG["db_url"])
     sources = read_csv(source_csv)
 
-    # only try and download data where scripted download is supported
-    sources = [s for s in sources if s["manual_download"] != 'T']
-
-    # ignore the layers that are flagged as excluded
-    sources = [s for s in sources if s["exclude"] != 'T']
-
-    # if provided an alias, only download that single layer
+    # filter sources based on optional provided alias and ignoring excluded
     if alias:
         sources = [s for s in sources if s["alias"] == alias]
+    sources = [s for s in sources if s["exclude"] != 'T']
 
-    db = pgdb.connect(CONFIG["db_url"])
-    for source in sources:
+    # process sources where automated downloads are avaiable
+    for source in [s for s in sources if s["manual_download"] != 'T']:
         info("Downloading %s" % source["alias"])
 
         # handle BCGW downloads
@@ -526,10 +637,8 @@ def load(source_csv, email, dl_path, alias):
                out_layer=source["alias"],
                sql=source["query"])
 
-    # Load manually downloaded data to postgres
-    sources = read_csv(source_csv)
-    sources = [s for s in sources if s["manual_download"] == 'T']
-    for source in sources:
+    # process manually downloaded sources
+    for source in [s for s in sources if s["manual_download"] == 'T']:
         file = os.path.join(dl_path, source["file_in_url"])
         if not os.path.exists(file):
             raise Exception(file+" does not exist, download it manually")
@@ -554,19 +663,22 @@ def load(source_csv, email, dl_path, alias):
 def process(source_csv, out_table, resume, no_preprocess, n_processes):
     """Create output conservation lands table
     """
-    db = pgdb.connect(CONFIG["db_url"], schema="public")
+    if n_processes == -1:
+        n_processes = multiprocessing.cpu_count() - 1
 
+    db = pgdb.connect(CONFIG["db_url"], schema="public")
+    db.execute(db.queries["safe_diff"])
     # run any required pre-processing
     # (no_preprocess flag is for development)
     if not no_preprocess:
-        preprocess(db, source_csv, n_processes)
+        preprocess(db, source_csv)
 
-    # create output table if not resuming from a bailed process
+    # create target table if not resuming from a bailed process
     if not resume:
         # create output table
-        db[out_table].drop()
-        db.execute(db.build_query(db.queries['create_output'],
-                                  {"table": out_table}))
+        db[out_table+"_prelim"].drop()
+        db.execute(db.build_query(db.queries['create_target'],
+                                  {"table": out_table+"_prelim"}))
 
     # filter sources - use only non-exlcuded sources with hierarchy > 0
     sources = [s for s in read_csv(source_csv)
@@ -579,37 +691,88 @@ def process(source_csv, out_table, resume, no_preprocess, n_processes):
 
     # iterate through all sources
     for source in sources:
-        info("Inserting %s into output" % source["alias"])
-        hierarchy = str(source["hierarchy"]).zfill(2)
-        in_table = "c"+hierarchy+"_"+source["alias"]
-        sql = db.build_query(db.queries["populate_output"],
-                             {"in_table": in_table,
-                              "out_table": out_table})
-        # process 250k tiles in parallel
-        tiles = get_tiles(db, in_table)
-        func = partial(run_overlay, sql)
-        pool = Pool(processes=n_processes)
-        pool.map(func, tiles)
-        pool.close()
-        pool.join()
+        info("Inserting %s into %s" % (source["clean_table"],
+                                       out_table+"_prelim"))
+        sql = db.build_query(db.queries["populate_target"],
+                             {"in_table": source["clean_table"],
+                              "out_table": out_table+"_prelim"})
+        # Find distinct tiles in source
+        tiles = db[source["clean_table"]].distinct('map_tile')
+        # Above query returns 20k tiles.
+        # Process by 250k tiles by using this query instead
+        # tiles = get_tiles(db, source["clean_table"])
+
+        # for testing, run only one process and report on tile
+        if n_processes == 1:
+            for tile in tiles:
+                info(tile)
+                db.execute(sql, (tile+"%", tile+"%"))
+        else:
+            func = partial(parallel_tiled, sql)
+            pool = multiprocessing.Pool(processes=n_processes)
+            pool.map(func, tiles)
+            pool.close()
+            pool.join()
 
     # clean up the output
     postprocess(db, sources, out_table)
 
 
 @cli.command()
+@click.argument('in_file', type=click.Path(exists=True))
+@click.option('--in_layer', '-l')
+@click.option('--out_gdb', '-o', default=CONFIG["out_gdb"],
+              help=HELP["out_gdb"])
+@click.option('--out_layer', '-ol', help="Name of output layer")
+def overlay(in_file, in_layer, out_file, out_layer):
+    """Intersect specified source with conservationlands"""
+    # load in_file to postgres
+    db = pgdb.connect(CONFIG["db_url"])
+    if in_layer:
+        src_table = in_layer
+    else:
+        src_table = os.path.splitext(os.path.basename(in_file))[0]
+    ogr2pg(db, in_file, in_layer=in_layer, out_layer=src_table)
+    # tile source
+    db[src_table+"_tiled"].drop()
+    lookup = {"out_table": src_table+"_tiled",
+              "src_table": src_table}
+    sql = db.build_query(db.queries["clean"], lookup)
+    db.execute(sql)
+    # run intersect
+    intersect(db, "conservationlands",
+              src_table+"_tiled", src_table+"_cnsrvtn")
+    # dump result to file
+    if not out_layer:
+        out_layer = src_table+"_conservationlands"
+    dump("SELECT * FROM %s_cnsrvtn", out_file, out_layer)
+
+
+@cli.command()
 @click.option('--out_table', '-o', default=CONFIG["out_table"],
               help=HELP["out_table"])
-@click.option('--out_shape', '-o', default=CONFIG["out_shp"],
-              help=HELP["out_shape"])
-def dump(out_table, out_shape):
-    """Dump output conservation lands layer to shp
+@click.option('--out_gdb', '-o', default=CONFIG["out_gdb"],
+              help=HELP["out_gdb"])
+def dump(out_table, out_gdb):
+    """Dump output conservation lands layer to gdb
     """
-    db = pgdb.connect(CONFIG["db_url"])
-    sql = """SELECT category, rollup, geom
-             FROM {s}.{t}
-          """.format(s=CONFIG["schema"], t=out_table)
-    pg2shp(db, sql, out_shape)
+    info('Dumping %s to %s' % (out_table, out_gdb))
+    sql = """SELECT
+               designation, category, bc_boundary, map_tile, geom
+             FROM {t}
+          """.format(t=out_table)
+    pg2ogr(CONFIG["db_url"], sql, "FileGDB", out_gdb, out_table,
+           geom_type="MULTIPOLYGON")
+
+
+@cli.command()
+@click.option('--out_table', '-o', default=CONFIG["out_table"],
+              help=HELP["out_table"])
+def test(out_table):
+    # overlay output with marine-terrestrial layer
+    db = pgdb.connect(CONFIG["db_url"], schema="public")
+    info('Cutting output layer with marine-terrestrial definition')
+    intersect(db, out_table+"_prelim", "bc_boundary", out_table)
 
 
 @cli.command()
@@ -620,14 +783,14 @@ def dump(out_table, out_shape):
               type=click.Path(exists=True), help=HELP['dl_path'])
 @click.option('--out_table', default=CONFIG["out_table"],
               help=HELP['out_table'])
-@click.option('--out_shape', default=CONFIG["out_shp"], help=HELP['out_shape'])
-def run_all(source_csv, email, dl_path, out_table, out_shape):
+@click.option('--out_gdb', default=CONFIG["out_gdb"], help=HELP['out_gdb'])
+def run_all(source_csv, email, dl_path, out_table, out_gdb):
     """ Run complete conservation lands job
     """
     create_db()
     load(source_csv, email, dl_path)
     process(source_csv, out_table)
-    dump(out_shape)
+    dump(out_gdb)
 
 
 if __name__ == '__main__':

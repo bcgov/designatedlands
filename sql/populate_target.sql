@@ -1,11 +1,11 @@
-INSERT INTO $out_table (src_id, category, map_tile, geom)
+INSERT INTO $out_table (designation, map_tile, geom)
 
 WITH
 
 src_clip AS
 (SELECT
    id,
-   category,
+   designation,
    map_tile,
    geom
  FROM $in_table
@@ -17,8 +17,7 @@ dest_clip AS
 all_intersects AS
 (SELECT
   i.id AS input_id,
-  o.id AS output_id,
-  i.category AS input_category,
+  i.designation AS input_designation,
   ST_MakeValid(o.geom) as output_geom
 FROM src_clip AS i
 INNER JOIN dest_clip AS o
@@ -31,41 +30,46 @@ ON ST_Intersects(o.geom, i.geom)),
 target_intersections AS
 (SELECT
    a.input_id AS id,
-   ST_MakeValid(
-      ST_SnapToGrid(
-         ST_Union(a.output_geom), .001)) AS geom
+     ST_Buffer(
+      ST_CollectionExtract(
+        ST_SnapToGrid(
+           ST_Union(a.output_geom), .001), 3), 0) AS geom
 FROM all_intersects a
 GROUP BY a.input_id),
 
 difference AS (
 SELECT
   id,
-  category,
+  designation,
   map_tile,
   st_multi(st_union(geom)) AS geom
 FROM
     (SELECT
        i.id as id,
-       i.category as category,
+       i.designation as designation,
        i.map_tile as map_tile,
        (ST_Dump(COALESCE(
-        ST_Difference(
+        /*ST_Difference(
              st_makevalid(
                 st_buffer(
                    st_snap(
-                      st_snaptogrid(i.geom, .01), u.geom, .1), 0)),
+                      st_snaptogrid(i.geom, .01), u.geom, 1), 0)),
 
              st_makevalid(
                 st_buffer(
                    st_snaptogrid(u.geom, .01), 0))
-          )))).geom
+          )
+          */
+          -- catch exceptions
+          safe_diff(i.geom, u.geom)))).geom
         AS geom
      FROM src_clip AS i
      INNER JOIN target_intersections u
      ON i.id = u.id
      ) AS foo
+-- discard very small differences
 WHERE st_area(geom) > 10
-GROUP BY foo.id, foo.category, foo.map_tile
+GROUP BY foo.id, foo.designation, foo.map_tile
 ),
 
 
@@ -73,7 +77,7 @@ GROUP BY foo.id, foo.category, foo.map_tile
 non_intersections AS
 (SELECT
   i.id,
-  i.category,
+  i.designation,
   i.map_tile,
   ST_Multi(i.geom) as geom
 FROM src_clip i
@@ -82,9 +86,9 @@ WHERE a.input_id IS null)
 
 
 -- combine things and make sure we aren't inserting point or line intersections
-SELECT id, category, map_tile, ST_MakeValid(geom) as geom
+SELECT designation, map_tile, ST_MakeValid(geom) as geom
 FROM difference
 WHERE GeometryType(geom) = 'MULTIPOLYGON'
 UNION ALL
-SELECT id, category, map_tile, ST_MakeValid(geom) as geom
+SELECT designation, map_tile, ST_MakeValid(geom) as geom
 FROM non_intersections
