@@ -783,14 +783,14 @@ def overlay(in_file, in_layer, out_gdb, new_layer_name):
     # run intersect
     info("Intersecting %s with %s" % ('conservationlands', new_layer_name))
     intersect(db, "conservationlands",
-              new_layer_name, new_layer_name+"_cnsrvtn")
+              new_layer_name, new_layer_name+"_overlay")
     # dump result to file
     info("Dumping intersect to file %s " % out_gdb)
     pg2ogr(CONFIG["db_url"],
-           "SELECT * FROM %s_cnsrvtn" % new_layer_name,
+           "SELECT * FROM %s_overlay" % new_layer_name,
            "FileGDB",
            out_gdb,
-           new_layer_name+"_conservationlands",
+           new_layer_name,
            geom_type="MULTIPOLYGON")
 
 

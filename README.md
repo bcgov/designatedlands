@@ -125,6 +125,36 @@ $ python conservationlands.py load \
   --dl_path newparks_download
 ```
 
+#### Overlay
+In addition to creating the output conservation lands layer, this tool also provides a mechanism to overlay the results with administration or ecological units of your choice:
+
+```
+$ python conservationlands.py overlay --help
+Usage: conservationlands.py overlay [OPTIONS] IN_FILE
+
+  Intersect layer with conservationlands
+
+Options:
+  -l, --in_layer TEXT
+  -o, --out_gdb TEXT           Name of output conservation lands geodatabase
+  -nln, --new_layer_name TEXT  Output layer name
+  --help
+```
+
+To overlay `conservationlands` with BC ecosections:
+
+```
+# get ecosection data 
+$ bcdata --email myemail@mail.bc.ca ecosections-ecoregion-ecosystem-classification-of-british-columbia
+
+# overlay with conservationlands layer to create output eco.gdb/ecosections_cnsrvtn
+$ python conservationlands.py overlay \
+  ERC_ECOSECTIONS_SP.gdb \
+  -l WHSE_TERRESTRIAL_ECOLOGY_ERC_ECOSECTIONS_SP_polygon \
+  -o eco.gdb \
+  -nln ecosections_cnsrvtn
+```
+
 ### sources.csv
 The file `sources.csv` defines all source layers and how they are processed. Edit this table to customize the analysis. Note that order of the rows is not important, the script will sort the rows by the **hierarchy** column. Columns are as follows:
 
@@ -145,6 +175,8 @@ The file `sources.csv` defines all source layers and how they are processed. Edi
 | **preprocess_operation**   | Pre-processing operation to apply to layer (`clip` is the only current supported operation)  | 
 | **preprocess_layer_alias** | `alias` of an additional layer to use in the **preprocess_operation** (for example, to clip a source by the Muskwa-Kechika Management Area boundary, set **preprocess_operation** = `clip` and **preprocess_layer_alias** = `mk_boundary` | 
 | **notes**                  | Misc notes related to layer                                                                                                                                                            | 
+
+
 
 ## License
 
