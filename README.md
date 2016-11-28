@@ -95,10 +95,10 @@ Usage: conservationlands.py load [OPTIONS]
   Download data, load to postgres
 
 Options:
-  -s, --source_csv PATH  path to a csv that lists all input data and sources
-  --email TEXT           a valid email address to use for DataBC downloads
-  --dl_path PATH         path to folder for saving downloaded data
-  -a, --alias TEXT       the 'alias' key identifing the layer of interest,
+  -s, --source_csv PATH  Path to csv that lists all input data sources
+  --email TEXT           A valid email address, used for DataBC downloads
+  --dl_path PATH         Path to folder holding downloaded data
+  -a, --alias TEXT       The 'alias' key identifing the source of interest,
                          from source csv
   --help                 Show this message and exit.
 ```

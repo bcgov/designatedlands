@@ -43,12 +43,12 @@ CHUNK_SIZE = 1024
 logging.basicConfig(level=logging.INFO)
 
 HELP = {
-  "csv": 'path to a csv that lists all input data and sources',
-  "email": 'a valid email address to use for DataBC downloads',
-  "dl_path": 'path to folder for saving downloaded data',
-  "alias": "the 'alias' key identifing the layer of interest, from source csv",
-  "out_gdb": "Name of output conservation lands geodatabase",
-  "out_table": 'name of output conservation lands postgresql table'}
+  "csv": 'Path to csv that lists all input data sources',
+  "email": 'A valid email address, used for DataBC downloads',
+  "dl_path": 'Path to folder holding downloaded data',
+  "alias": "The 'alias' key identifing the source of interest, from source csv",
+  "out_gdb": "Output geodatabase name",
+  "out_table": 'Output conservation lands postgres table'}
 
 
 def get_files(path):
@@ -767,7 +767,7 @@ def process(source_csv, out_table, resume, no_preprocess, n_processes):
 
 @cli.command()
 @click.argument('in_file', type=click.Path(exists=True))
-@click.option('--in_layer', '-l')
+@click.option('--in_layer', '-l', help="Input layer name")
 @click.option('--out_gdb', '-o', default=CONFIG["out_gdb"],
               help=HELP["out_gdb"])
 @click.option('--new_layer_name', '-nln', help="Output layer name")
