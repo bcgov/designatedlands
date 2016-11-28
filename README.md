@@ -72,6 +72,7 @@ Before running the script, manually download all files defined in `sources.csv` 
 
 Once data are downloaded, script usage is:
 ```
+$ python conservationlands.py --help
 Usage: conservationlands.py [OPTIONS] COMMAND [ARGS]...
 
 Options:
@@ -79,24 +80,26 @@ Options:
 
 Commands:
   create_db  Create an empty postgres db for processing
-  dump       Dump output conservation lands layer to shp
+  dump       Dump output conservation lands layer to gdb
   load       Download data, load to postgres
+  overlay    Intersect layer with conservationlands
   process    Create output conservation lands table
   run_all    Run complete conservation lands job
 ```
 
 For help regarding an individual command:
 ```
-$ python conservationlands.py download --help
-Usage: conservationlands download [OPTIONS]
+$ python conservationlands.py load --help
+Usage: conservationlands.py load [OPTIONS]
 
   Download data, load to postgres
 
 Options:
-  -s, --source_csv PATH
-  --email TEXT
-  --dl_path PATH
-  -a, --alias TEXT
+  -s, --source_csv PATH  path to a csv that lists all input data and sources
+  --email TEXT           a valid email address to use for DataBC downloads
+  --dl_path PATH         path to folder for saving downloaded data
+  -a, --alias TEXT       the 'alias' key identifing the layer of interest,
+                         from source csv
   --help                 Show this message and exit.
 ```
 

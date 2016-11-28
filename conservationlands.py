@@ -772,7 +772,7 @@ def process(source_csv, out_table, resume, no_preprocess, n_processes):
               help=HELP["out_gdb"])
 @click.option('--new_layer_name', '-nln', help="Output layer name")
 def overlay(in_file, in_layer, out_gdb, new_layer_name):
-    """Intersect specified source with conservationlands"""
+    """Intersect layer with conservationlands"""
     # load in_file to postgres
     db = pgdb.connect(CONFIG["db_url"], schema="public")
     if not in_layer:
