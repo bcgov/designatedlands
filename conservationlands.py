@@ -276,6 +276,7 @@ def ogr2pg(db, in_file, in_layer=None, out_layer=None,
                           db=db.database,
                           pwd=db.password),
                '-lco OVERWRITE=YES',
+               '-overwrite',
                '-lco SCHEMA={schema}'.format(schema=schema),
                '-lco GEOMETRY_NAME=geom',
                '-dim 2',
@@ -311,6 +312,40 @@ def parallel_tiled(sql, tile):
     """
     db = pgdb.connect(CONFIG["db_url"], schema="public")
     db.execute(sql, (tile+"%", tile+"%"))
+
+
+def clip(db, in_table, clip_table):
+    """
+    Clip geometry of in_table by clip_table, overwriting in_table with the
+    output.
+    """
+    columns = ["a."+c for c in db[in_table].columns if c != 'geom']
+    temp_table = "temp_clip"
+    db[temp_table].drop()
+    sql = """CREATE UNLOGGED TABLE {temp} AS
+             SELECT
+               {columns},
+               CASE
+                 WHEN ST_CoveredBy(a.geom, b.geom) THEN a.geom
+                 ELSE ST_Multi(
+                        ST_Intersection(a.geom,b.geom)) END AS geom
+             FROM {in_table} AS a
+             INNER JOIN {clip_table} AS b
+             ON ST_Intersects(a.geom, b.geom)
+          """.format(temp=temp_table,
+                     columns=", ".join(columns),
+                     in_table=in_table,
+                     clip_table=clip_table)
+    info('Clipping %s by %s' % (in_table, clip_table))
+    db.execute(sql)
+    # drop the source table
+    db[in_table].drop()
+    # copy the temp output back to the source
+    db.execute("""CREATE TABLE {t} AS
+                  SELECT * FROM {temp}""".format(t=in_table, temp=temp_table))
+    # re-create indexes
+    db[in_table].create_index_geom()
+    db[in_table].create_index(["id"])
 
 
 def preprocess(db, source_csv):
@@ -440,13 +475,26 @@ def intersect(db, in_table, intersect_table, out_table):
     pk = Column(out_table+"_id", Integer, primary_key=True)
     pgdb.Table(db, "public", out_table, [pk]+in_columns+intersect_columns)
     # populate the output table
-    sql = db.build_query(db.queries["intersect"],
-                         {"in_table": in_table,
-                          "in_columns": ", ".join(in_names),
-                          "intersect_table": intersect_table,
-                          "intersect_columns": ", ".join(intersect_names),
-                          "out_table": out_table})
-    tiles = get_tiles(db, intersect_table)
+    if 'map_tile' not in [c.name for c in db[intersect_table].sqla_columns]:
+        query = "intersect_dynamictile"
+        tile_table = "tiles"
+        sql = db.build_query(db.queries[query],
+                             {"in_table": in_table,
+                              "in_columns": ", ".join(in_names),
+                              "intersect_table": intersect_table,
+                              "intersect_columns": ", ".join(intersect_names),
+                              "out_table": out_table,
+                              "tile_table": tile_table})
+    else:
+        query = "intersect"
+        tile_table = None
+        sql = db.build_query(db.queries[query],
+                             {"in_table": in_table,
+                              "in_columns": ", ".join(in_names),
+                              "intersect_table": intersect_table,
+                              "intersect_columns": ", ".join(intersect_names),
+                              "out_table": out_table})
+    tiles = get_tiles(db, intersect_table, "tiles")
     func = partial(parallel_tiled, sql)
     pool = multiprocessing.Pool(processes=3)
     pool.map(func, tiles)
@@ -696,9 +744,8 @@ def process(source_csv, out_table, resume, no_preprocess, n_processes):
         sql = db.build_query(db.queries["populate_target"],
                              {"in_table": source["clean_table"],
                               "out_table": out_table+"_prelim"})
-        # Find distinct tiles in source
+        # Find distinct tiles in source (20k)
         tiles = db[source["clean_table"]].distinct('map_tile')
-        # Above query returns 20k tiles.
         # Process by 250k tiles by using this query instead
         # tiles = get_tiles(db, source["clean_table"])
 
@@ -723,29 +770,28 @@ def process(source_csv, out_table, resume, no_preprocess, n_processes):
 @click.option('--in_layer', '-l')
 @click.option('--out_gdb', '-o', default=CONFIG["out_gdb"],
               help=HELP["out_gdb"])
-@click.option('--out_layer', '-ol', help="Name of output layer")
-def overlay(in_file, in_layer, out_file, out_layer):
+@click.option('--new_layer_name', '-nln', help="Output layer name")
+def overlay(in_file, in_layer, out_gdb, new_layer_name):
     """Intersect specified source with conservationlands"""
     # load in_file to postgres
-    db = pgdb.connect(CONFIG["db_url"])
-    if in_layer:
-        src_table = in_layer
-    else:
-        src_table = os.path.splitext(os.path.basename(in_file))[0]
-    ogr2pg(db, in_file, in_layer=in_layer, out_layer=src_table)
-    # tile source
-    db[src_table+"_tiled"].drop()
-    lookup = {"out_table": src_table+"_tiled",
-              "src_table": src_table}
-    sql = db.build_query(db.queries["clean"], lookup)
-    db.execute(sql)
+    db = pgdb.connect(CONFIG["db_url"], schema="public")
+    if not in_layer:
+        in_layer = fiona.listlayers(in_file)[0]
+    if not new_layer_name:
+        new_layer_name = in_layer
+    ogr2pg(db, in_file, in_layer=in_layer, out_layer=new_layer_name)
     # run intersect
+    info("Intersecting %s with %s" % ('conservationlands', new_layer_name))
     intersect(db, "conservationlands",
-              src_table+"_tiled", src_table+"_cnsrvtn")
+              new_layer_name, new_layer_name+"_cnsrvtn")
     # dump result to file
-    if not out_layer:
-        out_layer = src_table+"_conservationlands"
-    dump("SELECT * FROM %s_cnsrvtn", out_file, out_layer)
+    info("Dumping intersect to file %s " % out_gdb)
+    pg2ogr(CONFIG["db_url"],
+           "SELECT * FROM %s_cnsrvtn" % new_layer_name,
+           "FileGDB",
+           out_gdb,
+           new_layer_name+"_conservationlands",
+           geom_type="MULTIPOLYGON")
 
 
 @cli.command()
@@ -763,16 +809,6 @@ def dump(out_table, out_gdb):
           """.format(t=out_table)
     pg2ogr(CONFIG["db_url"], sql, "FileGDB", out_gdb, out_table,
            geom_type="MULTIPOLYGON")
-
-
-@cli.command()
-@click.option('--out_table', '-o', default=CONFIG["out_table"],
-              help=HELP["out_table"])
-def test(out_table):
-    # overlay output with marine-terrestrial layer
-    db = pgdb.connect(CONFIG["db_url"], schema="public")
-    info('Cutting output layer with marine-terrestrial definition')
-    intersect(db, out_table+"_prelim", "bc_boundary", out_table)
 
 
 @cli.command()

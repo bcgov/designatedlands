@@ -18,7 +18,8 @@ all_intersects AS
 (SELECT
   i.id AS input_id,
   i.designation AS input_designation,
-  ST_MakeValid(o.geom) as output_geom
+  ST_MakeValid(
+     ST_SnapToGrid(o.geom, 0.001)) as output_geom
 FROM src_clip AS i
 INNER JOIN dest_clip AS o
 ON ST_Intersects(o.geom, i.geom)),
@@ -49,7 +50,9 @@ FROM
        i.designation as designation,
        i.map_tile as map_tile,
        (ST_Dump(COALESCE(
-        /*ST_Difference(
+        -- no exception catching
+        /*
+        ST_Difference(
              st_makevalid(
                 st_buffer(
                    st_snap(
@@ -57,11 +60,12 @@ FROM
 
              st_makevalid(
                 st_buffer(
-                   st_snaptogrid(u.geom, .01), 0))
-          )
-          */
-          -- catch exceptions
-          safe_diff(i.geom, u.geom)))).geom
+                   st_snaptogrid(u.geom, .01), 0)))
+        */
+
+        -- catch exceptions
+          safe_diff(i.geom, u.geom)
+          ))).geom
         AS geom
      FROM src_clip AS i
      INNER JOIN target_intersections u

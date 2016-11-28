@@ -15,7 +15,7 @@ BEGIN
                           ST_Snaptogrid(geom_a, .01), geom_b, .1), 0)),
                  ST_Makevalid(
                     ST_Buffer(
-                       ST_Snaptogrid(geom_a, .01), 0)));
+                       ST_Snaptogrid(geom_b, .01), 0)));
     EXCEPTION
         WHEN OTHERS THEN
             RETURN ST_GeomFromText('POLYGON EMPTY');
