@@ -12,7 +12,8 @@ INSERT INTO tiles (map_tile, geom)
 SELECT map_tile, geom FROM tiles_20k;
 
 INSERT INTO tiles (map_tile, geom)
-SELECT a.map_tile||'000', st_difference(a.geom, st_union(b.geom))
+SELECT a.map_tile||'000',
+ST_Multi(ST_CollectionExtract(st_difference(a.geom, st_union(b.geom)), 3))
 FROM tiles_250k a
 INNER JOIN tiles_20k b
 ON ST_Intersects(a.geom, b.geom)

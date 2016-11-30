@@ -33,7 +33,7 @@ CONFIG = {
     "out_gdb": "conservationlands.gdb",
     "db_url":
     "postgresql://postgres:postgres@localhost:5432/conservationlands",
-    "n_processes": -1
+    "n_processes": multiprocessing.cpu_count() - 1
     }
 # --------------------------------------------
 # --------------------------------------------
@@ -348,13 +348,16 @@ def clip(db, in_table, clip_table):
     db[in_table].create_index(["id"])
 
 
-def preprocess(db, source_csv):
+def preprocess(db, source_csv, alias=None):
     """
     Before running the main processing job:
       - create comprehensive tiling layer
       - preprocess sources as specified in source_csv
     """
     sources = read_csv(source_csv)
+
+    if alias:
+        sources = [s for s in sources if s['alias'] == alias]
 
     # create tile layer
     db.execute(db.queries["create_tiles"])
@@ -370,7 +373,7 @@ def preprocess(db, source_csv):
         db[source["clean_table"]].drop()
         lookup = {"out_table": source["clean_table"],
                   "src_table": source["src_table"]}
-        sql = db.build_query(db.queries["clean"], lookup)
+        sql = db.build_query(db.queries["clean_union"], lookup)
         db.execute(sql)
 
     # apply pre-processing operation specified in sources.csv
@@ -387,7 +390,7 @@ def preprocess(db, source_csv):
                             preprocess_lyr["alias"])
 
 
-def create_bc_boundary(db):
+def create_bc_boundary(db, n_processes):
     """
     Create a comprehensive land-marine layer by combining three sources.
 
@@ -427,8 +430,7 @@ def create_bc_boundary(db):
         db[source+"_tiled"].drop()
         lookup = {"src_table": "temp_"+source,
                   "out_table": source+"_tiled"}
-        sql = db.build_query(db.queries["clean"], lookup)
-        db.execute(db.build_query(db.queries["clean"], lookup))
+        db.execute(db.build_query(db.queries["clean_union"], lookup))
         db["temp_"+source].drop()
 
         # combine the boundary layers into new table bc_boundary
@@ -447,7 +449,8 @@ def create_bc_boundary(db):
                   RENAME COLUMN designation TO bc_boundary""")
 
 
-def intersect(db, in_table, intersect_table, out_table):
+def intersect(db, in_table, intersect_table, out_table, n_processes,
+              tiles=None):
     """
     Intersect in_table with intersect_table, creating out_table
     Inputs may not have equivalently named columns
@@ -476,7 +479,7 @@ def intersect(db, in_table, intersect_table, out_table):
     pgdb.Table(db, "public", out_table, [pk]+in_columns+intersect_columns)
     # populate the output table
     if 'map_tile' not in [c.name for c in db[intersect_table].sqla_columns]:
-        query = "intersect_dynamictile"
+        query = "intersect_inputtiled"
         tile_table = "tiles"
         sql = db.build_query(db.queries[query],
                              {"in_table": in_table,
@@ -486,7 +489,7 @@ def intersect(db, in_table, intersect_table, out_table):
                               "out_table": out_table,
                               "tile_table": tile_table})
     else:
-        query = "intersect"
+        query = "intersect_alltiled"
         tile_table = None
         sql = db.build_query(db.queries[query],
                              {"in_table": in_table,
@@ -494,15 +497,30 @@ def intersect(db, in_table, intersect_table, out_table):
                               "intersect_table": intersect_table,
                               "intersect_columns": ", ".join(intersect_names),
                               "out_table": out_table})
-    tiles = get_tiles(db, intersect_table, "tiles")
+    if not tiles:
+        tiles = get_tiles(db, intersect_table, "tiles")
     func = partial(parallel_tiled, sql)
-    pool = multiprocessing.Pool(processes=3)
-    pool.map(func, tiles)
+    pool = multiprocessing.Pool(processes=n_processes)
+
+    # add a progress bar
+    results_iter = pool.imap_unordered(func, tiles)
+    with click.progressbar(results_iter, length=len(tiles)) as bar:
+        for _ in bar:
+            pass
+
+    #pool.map(func, tiles)
     pool.close()
     pool.join()
+    # delete any records with empty geometries in the out table
+    db.execute("""DELETE FROM {t} WHERE ST_IsEmpty(geom) = True
+               """.format(t=out_table))
+    # add map_tile index to output
+    db.execute("""CREATE INDEX {t}_tileix
+                  ON {t} (map_tile text_pattern_ops)
+               """.format(t=out_table))
 
 
-def postprocess(db, sources, out_table):
+def postprocess(db, sources, out_table, n_processes):
     """Postprocess the output conservation lands table
     """
     # add category (rollup) column by creating lookup table from source.csv
@@ -535,10 +553,10 @@ def postprocess(db, sources, out_table):
           """.format(t=out_table+"_prelim")
     db.execute(sql)
     # create marine-terrestrial layer
-    create_bc_boundary(db)
+    create_bc_boundary(db, n_processes)
     # overlay output with marine-terrestrial layer
     info('Cutting output layer with marine-terrestrial definition')
-    intersect(db, out_table+"_prelim", "bc_boundary", out_table)
+    intersect(db, out_table+"_prelim", "bc_boundary", out_table, n_processes)
 
 
 def pg2ogr(db_url, sql, driver, outfile, outlayer=None, column_remap=None,
@@ -711,9 +729,6 @@ def load(source_csv, email, dl_path, alias):
 def process(source_csv, out_table, resume, no_preprocess, n_processes):
     """Create output conservation lands table
     """
-    if n_processes == -1:
-        n_processes = multiprocessing.cpu_count() - 1
-
     db = pgdb.connect(CONFIG["db_url"], schema="public")
     db.execute(db.queries["safe_diff"])
     # run any required pre-processing
@@ -762,7 +777,17 @@ def process(source_csv, out_table, resume, no_preprocess, n_processes):
             pool.join()
 
     # clean up the output
-    postprocess(db, sources, out_table)
+    postprocess(db, sources, out_table, n_processes)
+
+
+@cli.command()
+@click.option('--source_csv', '-s', default=CONFIG["source_csv"],
+              type=click.Path(exists=True), help=HELP['csv'])
+@click.option('--out_table', '-o', default=CONFIG["out_table"],
+              help=HELP["out_table"])
+def test(source_csv, out_table):
+    db = pgdb.connect(CONFIG["db_url"], schema="public")
+    preprocess(db, source_csv, alias="great_bear_fisheries_watersheds")
 
 
 @cli.command()
@@ -771,7 +796,9 @@ def process(source_csv, out_table, resume, no_preprocess, n_processes):
 @click.option('--out_gdb', '-o', default=CONFIG["out_gdb"],
               help=HELP["out_gdb"])
 @click.option('--new_layer_name', '-nln', help="Output layer name")
-def overlay(in_file, in_layer, out_gdb, new_layer_name):
+@click.option('--n_processes', '-p', default=CONFIG["n_processes"],
+              help="Number of parallel processing threads to utilize")
+def overlay(in_file, in_layer, out_gdb, new_layer_name, n_processes):
     """Intersect layer with conservationlands"""
     # load in_file to postgres
     db = pgdb.connect(CONFIG["db_url"], schema="public")
@@ -780,10 +807,13 @@ def overlay(in_file, in_layer, out_gdb, new_layer_name):
     if not new_layer_name:
         new_layer_name = in_layer
     ogr2pg(db, in_file, in_layer=in_layer, out_layer=new_layer_name)
-    # run intersect
+    # pull distinct tiles iterable into a list
+    tiles = [t for t in db["tiles"].distinct('map_tile')]
+    # uncomment and adjust for debugging a specific tile
+    #tiles = [t for t in tiles if t[:4] == '092K']
     info("Intersecting %s with %s" % ('conservationlands', new_layer_name))
     intersect(db, "conservationlands",
-              new_layer_name, new_layer_name+"_overlay")
+              new_layer_name, new_layer_name+"_overlay", n_processes, tiles)
     # dump result to file
     info("Dumping intersect to file %s " % out_gdb)
     pg2ogr(CONFIG["db_url"],

@@ -3,28 +3,15 @@
 --   - cut by tiles layer
 --   - attempt to validate geometry
 
--- create empty table with new auto-indexed id column
-CREATE UNLOGGED TABLE IF NOT EXISTS $out_table (
-     id serial PRIMARY KEY,
-     designation text,
-     map_tile text,
-     geom geometry
-);
-
 -- insert cleaned data
-INSERT INTO $out_table (designation, map_tile, geom)
-  SELECT designation, map_tile, geom
-  FROM (SELECT
-          '$out_table'::TEXT as designation,
+INSERT INTO $out_table ($columns, map_tile, geom)
+SELECT
+          $columns,
           b.map_tile,
   -- make sure the output is valid
           st_makevalid(
-  -- dump
-            (st_dump(
-  -- union to remove overlapping polys within the source
-            ST_Union(
-  -- make buffer result multipart
-                ST_Multi(
+  -- dump and multipart
+            ST_Multi((st_dump(
   -- buffer the features by 0 to help with validity
                   ST_Buffer(
   -- first validity check
@@ -39,12 +26,9 @@ INSERT INTO $out_table (designation, map_tile, geom)
                       , 3)
                     )
                   , 0)
-                  )
-                )
-            )).geom) as geom
+                  )).geom)) as geom
         FROM $src_table a
-        INNER JOIN tiles b ON ST_Intersects(a.geom, b.geom)
-        GROUP BY designation, map_tile) as foo;
+        INNER JOIN tiles b ON ST_Intersects(a.geom, b.geom);
 
 -- index for speed
 CREATE INDEX $out_table_gix ON $out_table USING GIST (geom);
