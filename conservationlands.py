@@ -781,16 +781,6 @@ def process(source_csv, out_table, resume, no_preprocess, n_processes):
 
 
 @cli.command()
-@click.option('--source_csv', '-s', default=CONFIG["source_csv"],
-              type=click.Path(exists=True), help=HELP['csv'])
-@click.option('--out_table', '-o', default=CONFIG["out_table"],
-              help=HELP["out_table"])
-def test(source_csv, out_table):
-    db = pgdb.connect(CONFIG["db_url"], schema="public")
-    preprocess(db, source_csv, alias="great_bear_fisheries_watersheds")
-
-
-@cli.command()
 @click.argument('in_file', type=click.Path(exists=True))
 @click.option('--in_layer', '-l', help="Input layer name")
 @click.option('--out_gdb', '-o', default=CONFIG["out_gdb"],
