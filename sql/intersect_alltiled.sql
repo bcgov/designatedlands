@@ -9,7 +9,7 @@ SELECT
     WHEN ST_CoveredBy(a.geom, ST_Buffer(b.geom, .01)) THEN ST_MakeValid(a.geom)
     ELSE ST_MakeValid(ST_Multi(ST_CollectionExtract(ST_Intersection(
                      ST_MakeValid(a.geom), ST_MakeValid(b.geom)
-                     ), 3))
+                     ), 3)))
    END as geom
 FROM $in_table a
 INNER JOIN $intersect_table b ON ST_Intersects(a.geom, b.geom)
