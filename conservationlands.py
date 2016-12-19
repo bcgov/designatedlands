@@ -630,6 +630,7 @@ def pg2ogr(db_url, sql, driver, outfile, outlayer=None, column_remap=None,
     if driver == 'GeoJSON':
         command = command.replace("""-f "GeoJSON" """,
                                   """-f "GeoJSON" -t_srs EPSG:4326""")
+    info(command)
     subprocess.call(command, shell=True)
 
 
