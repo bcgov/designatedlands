@@ -520,7 +520,7 @@ def intersect(db, in_table, intersect_table, out_table, n_processes,
                """.format(t=out_table))
 
 
-def postprocess(db, sources, out_table, n_processes):
+def postprocess(db, sources, out_table, n_processes, tiles=None):
     """Postprocess the output conservation lands table
     """
     # add category (rollup) column by creating lookup table from source.csv
@@ -553,10 +553,11 @@ def postprocess(db, sources, out_table, n_processes):
           """.format(t=out_table+"_prelim")
     db.execute(sql)
     # create marine-terrestrial layer
-    create_bc_boundary(db, n_processes)
-    # overlay output with marine-terrestrial layer
+    if 'bc_boundary' not in db.tables:
+        create_bc_boundary(db, n_processes)
     info('Cutting output layer with marine-terrestrial definition')
-    intersect(db, out_table+"_prelim", "bc_boundary", out_table, n_processes)
+    intersect(db, out_table+"_prelim", "bc_boundary", out_table, n_processes,
+              tiles)
 
 
 def pg2ogr(db_url, sql, driver, outfile, outlayer=None, column_remap=None,
@@ -727,9 +728,11 @@ def load(source_csv, email, dl_path, alias):
 @click.option('--no_preprocess', is_flag=True)
 @click.option('--n_processes', '-p', default=CONFIG["n_processes"],
               help="Number of parallel processing threads to utilize")
-def process(source_csv, out_table, resume, no_preprocess, n_processes):
+@click.option('--tiles', '-t', help="Comma separated list of tiles to process")
+def process(source_csv, out_table, resume, no_preprocess, n_processes, tiles):
     """Create output conservation lands table
     """
+    tiles = tiles.split(",")
     db = pgdb.connect(CONFIG["db_url"], schema="public")
     db.execute(db.queries["safe_diff"])
     # run any required pre-processing
@@ -751,19 +754,33 @@ def process(source_csv, out_table, resume, no_preprocess, n_processes):
     # in case of bailing during tests/development, specify resume option to
     # resume processing at specified hierarchy number
     if resume:
-        sources = [s for s in sources if int(s["hierarchy"]) >= int(resume)]
+        p_sources = [s for s in sources if int(s["hierarchy"]) >= int(resume)]
+    else:
+        p_sources = sources
+
+    # Using the tiles layer, fill in gaps so all BC is included in output
+    # add 'id' to tiles table to make match schema of other sources
+    if 'id' not in db['tiles'].columns:
+        db.execute("ALTER TABLE tiles ADD COLUMN id integer")
+        db.execute("UPDATE tiles SET id = tile_id")
+    if 'designation' not in db['tiles'].columns:
+        db.execute("ALTER TABLE tiles ADD COLUMN designation text")
+    undesignated = {"clean_table": "tiles",
+                    "category": None}
+    p_sources.append(undesignated)
 
     # iterate through all sources
-    for source in sources:
+    for source in p_sources:
         info("Inserting %s into %s" % (source["clean_table"],
                                        out_table+"_prelim"))
         sql = db.build_query(db.queries["populate_target"],
                              {"in_table": source["clean_table"],
                               "out_table": out_table+"_prelim"})
-        # Find distinct tiles in source (20k)
-        tiles = db[source["clean_table"]].distinct('map_tile')
-        # Process by 250k tiles by using this query instead
-        # tiles = get_tiles(db, source["clean_table"])
+        if not tiles:
+            # Find distinct tiles in source (20k)
+            tiles = db[source["clean_table"]].distinct('map_tile')
+            # Process by 250k tiles by using this query instead
+            # tiles = get_tiles(db, source["clean_table"])
 
         # for testing, run only one process and report on tile
         if n_processes == 1:
@@ -778,7 +795,7 @@ def process(source_csv, out_table, resume, no_preprocess, n_processes):
             pool.join()
 
     # clean up the output
-    postprocess(db, sources, out_table, n_processes)
+    postprocess(db, sources, out_table, n_processes, tiles)
 
 
 @cli.command()
