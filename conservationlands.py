@@ -733,7 +733,10 @@ def load(source_csv, email, dl_path, alias):
 def process(source_csv, out_table, resume, no_preprocess, n_processes, tiles):
     """Create output conservation lands table
     """
-    tiles = tiles.split(",")
+    if tiles:
+        all_tiles = set(tiles.split(","))
+    else:
+        all_tiles = None
     db = pgdb.connect(CONFIG["db_url"], schema="public")
     db.execute(db.queries["safe_diff"])
     # run any required pre-processing
@@ -777,11 +780,15 @@ def process(source_csv, out_table, resume, no_preprocess, n_processes, tiles):
         sql = db.build_query(db.queries["populate_target"],
                              {"in_table": source["clean_table"],
                               "out_table": out_table+"_prelim"})
-        if not tiles:
-            # Find distinct tiles in source (20k)
-            tiles = db[source["clean_table"]].distinct('map_tile')
-            # Process by 250k tiles by using this query instead
-            # tiles = get_tiles(db, source["clean_table"])
+        # Find distinct tiles in source (20k)
+        src_tiles = set(db[source["clean_table"]].distinct('map_tile'))
+        # only use tiles specified
+        if all_tiles:
+            tiles = all_tiles & src_tiles
+        else:
+            tiles = src_tiles
+        # Process by 250k tiles by using this query instead
+        # tiles = get_tiles(db, source["clean_table"])
 
         # for testing, run only one process and report on tile
         if n_processes == 1:
