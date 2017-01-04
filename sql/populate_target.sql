@@ -31,10 +31,10 @@ ON ST_Intersects(o.geom, i.geom)),
 target_intersections AS
 (SELECT
    a.input_id AS id,
-     ST_Buffer(
-      ST_CollectionExtract(
-        ST_SnapToGrid(
-           ST_Union(a.output_geom), .001), 3), 0) AS geom
+   ST_Union(
+       ST_Buffer(
+         ST_CollectionExtract(
+           ST_SnapToGrid(a.output_geom, .001), 3), 0.001)) AS geom
 FROM all_intersects a
 GROUP BY a.input_id),
 
