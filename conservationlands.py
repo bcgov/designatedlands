@@ -725,7 +725,8 @@ def load(source_csv, email, dl_path, alias):
               help=HELP["out_table"])
 @click.option('--resume', '-r',
               help='hierarchy number at which to resume processing')
-@click.option('--no_preprocess', is_flag=True)
+@click.option('--no_preprocess', is_flag=True,
+              help="Do not preprocess input data")
 @click.option('--n_processes', '-p', default=CONFIG["n_processes"],
               help="Number of parallel processing threads to utilize")
 @click.option('--tiles', '-t', help="Comma separated list of tiles to process")
@@ -759,7 +760,7 @@ def process(source_csv, out_table, resume, no_preprocess, n_processes, tiles):
         p_sources = sources
 
     # Using the tiles layer, fill in gaps so all BC is included in output
-    # add 'id' to tiles table to make match schema of other sources
+    # add 'id' to tiles table to match schema of other sources
     if 'id' not in db['tiles'].columns:
         db.execute("ALTER TABLE tiles ADD COLUMN id integer")
         db.execute("UPDATE tiles SET id = tile_id")
