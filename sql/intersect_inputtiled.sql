@@ -30,7 +30,14 @@ SELECT
   b.map_tile,
   CASE
     WHEN ST_CoveredBy(a.geom, ST_Buffer(b.geom, .01)) THEN ST_MakeValid(a.geom)
-    ELSE ST_MakeValid(ST_CollectionExtract(ST_Intersection(a.geom, b.geom), 3))
+    ELSE ST_MakeValid(
+            ST_CollectionExtract(
+               ST_Intersection(
+                  ST_MakeValid(a.geom), ST_MakeValid(
+                                            ST_SnapToGrid(b.geom, .01))
+                               )
+               , 3)
+            )
   END as geom
 FROM intersect_tile a
 INNER JOIN $in_table b ON ST_Intersects(a.geom, b.geom)
