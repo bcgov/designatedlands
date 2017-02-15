@@ -30,7 +30,8 @@ CONFIG = {
     "source_data": "source_data",
     "source_csv": "sources.csv",
     "out_table": "conservationlands",
-    "out_gdb": "conservationlands.gdb",
+    "out_file": "conservationlands.gpkg",
+    "out_format": "GPKG",
     "db_url":
     "postgresql://postgres:postgres@localhost:5432/conservationlands",
     "n_processes": multiprocessing.cpu_count() - 1
@@ -47,7 +48,8 @@ HELP = {
   "email": 'A valid email address, used for DataBC downloads',
   "dl_path": 'Path to folder holding downloaded data',
   "alias": "The 'alias' key identifing the source of interest, from source csv",
-  "out_gdb": "Output geodatabase name",
+  "out_file": "Output geopackage name",
+  "out_format": "Output format. Default GPKG (Geopackage)",
   "out_table": 'Output conservation lands postgres table'}
 
 
@@ -508,7 +510,7 @@ def intersect(db, in_table, intersect_table, out_table, n_processes,
         for _ in bar:
             pass
 
-    #pool.map(func, tiles)
+    # pool.map(func, tiles)
     pool.close()
     pool.join()
     # delete any records with empty geometries in the out table
@@ -564,7 +566,7 @@ def pg2ogr(db_url, sql, driver, outfile, outlayer=None, column_remap=None,
            geom_type=None):
     """
     A wrapper around ogr2ogr, for quickly dumping a postgis query to file.
-    Suppported formats are ["ESRI Shapefile", "GeoJSON", "FileGDB"]
+    Suppported formats are ["ESRI Shapefile", "GeoJSON", "FileGDB", "GPKG"]
        - for GeoJSON, transforms to EPSG:4326
        - for Shapefile, consider supplying a column_remap dict
        - for FileGDB, geom_type is required
@@ -680,10 +682,8 @@ def load(source_csv, email, dl_path, alias):
 
         # handle BCGW downloads
         if urlparse(source["url"]).hostname == 'catalogue.data.gov.bc.ca':
-            gdb = source["layer_in_file"].split(".")[1]+".gdb"
+            gdb = source["layer_in_file"].split(".")[1] + ".gdb"
             file = download_bcgw(source["url"], dl_path, email=email, gdb=gdb)
-            # read the layer name from the gdb
-            layer = fiona.listlayers(file)[0]
 
         # handle all other downloads
         else:
@@ -696,7 +696,8 @@ def load(source_csv, email, dl_path, alias):
                                dl_path,
                                source['alias'],
                                source['file_in_url'])
-            layer = source["layer_in_file"]
+
+        layer = get_layer_name(file, source["layer_in_file"])
 
         # load downloaded data to postgres
         ogr2pg(db,
@@ -709,13 +710,23 @@ def load(source_csv, email, dl_path, alias):
     for source in [s for s in sources if s["manual_download"] == 'T']:
         file = os.path.join(dl_path, source["file_in_url"])
         if not os.path.exists(file):
-            raise Exception(file+" does not exist, download it manually")
-        layer = source["layer_in_file"]
+            raise Exception(file + " does not exist, download it manually")
+        layer = get_layer_name(file, source["layer_in_file"])
         ogr2pg(db,
                file,
                in_layer=layer,
                out_layer=source["alias"],
                sql=source["query"])
+
+
+# Check number of layers and only use layer name from sources.csv if > 1 layer, else use first
+def get_layer_name(file, layer_name):
+    layers = fiona.listlayers(file)
+    if len(layers) > 1:
+        layer = layer_name
+    else:
+        layer = layers[0]
+    return layer
 
 
 @cli.command()
@@ -794,7 +805,7 @@ def process(source_csv, out_table, resume, no_preprocess, n_processes, tiles):
         if n_processes == 1:
             for tile in tiles:
                 info(tile)
-                db.execute(sql, (tile+"%", tile+"%"))
+                db.execute(sql, (tile + "%", tile + "%"))
         else:
             func = partial(parallel_tiled, sql)
             pool = multiprocessing.Pool(processes=n_processes)
@@ -809,12 +820,14 @@ def process(source_csv, out_table, resume, no_preprocess, n_processes, tiles):
 @cli.command()
 @click.argument('in_file', type=click.Path(exists=True))
 @click.option('--in_layer', '-l', help="Input layer name")
-@click.option('--out_gdb', '-o', default=CONFIG["out_gdb"],
-              help=HELP["out_gdb"])
+@click.option('--out_file', '-o', default=CONFIG["out_file"],
+              help=HELP["out_file"])
+@click.option('--out_format', '-of', default=CONFIG["out_format"],
+              help=HELP["out_format"])
 @click.option('--new_layer_name', '-nln', help="Output layer name")
 @click.option('--n_processes', '-p', default=CONFIG["n_processes"],
               help="Number of parallel processing threads to utilize")
-def overlay(in_file, in_layer, out_gdb, new_layer_name, n_processes):
+def overlay(in_file, in_layer, out_file, out_format, new_layer_name, n_processes):
     """Intersect layer with conservationlands"""
     # load in_file to postgres
     db = pgdb.connect(CONFIG["db_url"], schema="public")
@@ -826,16 +839,16 @@ def overlay(in_file, in_layer, out_gdb, new_layer_name, n_processes):
     # pull distinct tiles iterable into a list
     tiles = [t for t in db["tiles"].distinct('map_tile')]
     # uncomment and adjust for debugging a specific tile
-    #tiles = [t for t in tiles if t[:4] == '092K']
+    # tiles = [t for t in tiles if t[:4] == '092K']
     info("Intersecting %s with %s" % ('conservationlands', new_layer_name))
     intersect(db, "conservationlands",
-              new_layer_name, new_layer_name+"_overlay", n_processes, tiles)
+              new_layer_name, new_layer_name + "_overlay", n_processes, tiles)
     # dump result to file
-    info("Dumping intersect to file %s " % out_gdb)
+    info("Dumping intersect to file %s " % out_file)
     pg2ogr(CONFIG["db_url"],
            "SELECT * FROM %s_overlay" % new_layer_name,
-           "FileGDB",
-           out_gdb,
+           out_format,
+           out_file,
            new_layer_name,
            geom_type="MULTIPOLYGON")
 
@@ -843,17 +856,19 @@ def overlay(in_file, in_layer, out_gdb, new_layer_name, n_processes):
 @cli.command()
 @click.option('--out_table', '-o', default=CONFIG["out_table"],
               help=HELP["out_table"])
-@click.option('--out_gdb', '-o', default=CONFIG["out_gdb"],
-              help=HELP["out_gdb"])
-def dump(out_table, out_gdb):
+@click.option('--out_file', '-o', default=CONFIG["out_file"],
+              help=HELP["out_file"])
+@click.option('--out_format', '-of', default=CONFIG["out_format"],
+              help=HELP["out_format"])
+def dump(out_table, out_file, out_format):
     """Dump output conservation lands layer to gdb
     """
-    info('Dumping %s to %s' % (out_table, out_gdb))
+    info('Dumping %s to %s' % (out_table, out_file))
     sql = """SELECT
                designation, category, bc_boundary, map_tile, geom
              FROM {t}
           """.format(t=out_table)
-    pg2ogr(CONFIG["db_url"], sql, "FileGDB", out_gdb, out_table,
+    pg2ogr(CONFIG["db_url"], sql, out_format, out_file, out_table,
            geom_type="MULTIPOLYGON")
 
 
@@ -865,14 +880,16 @@ def dump(out_table, out_gdb):
               type=click.Path(exists=True), help=HELP['dl_path'])
 @click.option('--out_table', default=CONFIG["out_table"],
               help=HELP['out_table'])
-@click.option('--out_gdb', default=CONFIG["out_gdb"], help=HELP['out_gdb'])
-def run_all(source_csv, email, dl_path, out_table, out_gdb):
+@click.option('--out_file', default=CONFIG["out_file"], help=HELP['out_file'])
+@click.option('--out_format', '-of', default=CONFIG["out_format"],
+              help=HELP["out_format"])
+def run_all(source_csv, email, dl_path, out_table, out_file, out_format):
     """ Run complete conservation lands job
     """
     create_db()
     load(source_csv, email, dl_path)
     process(source_csv, out_table)
-    dump(out_gdb)
+    dump(out_file, out_format)
 
 
 if __name__ == '__main__':
