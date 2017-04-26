@@ -180,7 +180,7 @@ The file `sources.csv` defines all source layers and how they are processed. Edi
 
 ## License
 
-    Copyright 2016 Province of British Columbia
+    Copyright 2017 Province of British Columbia
 
     Licensed under the Apache License, Version 2.0 (the "License");
     you may not use this file except in compliance with the License.
