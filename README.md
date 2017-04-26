@@ -1,6 +1,6 @@
-# conservationlands
+# designatedlands
 
-Combine conservation related spatial data from many sources to create a single 'Conservation Lands' layer for British Columbia.
+Combine conservation related spatial data from many sources to create a single 'Designated Lands' layer for British Columbia.
 
 ## Requirements
 - PostgreSQL 8.4+, PostGIS 2.0+ (tested on PostgreSQL 9.5, PostGIS 2.2.2)
@@ -21,38 +21,38 @@ Combine conservation related spatial data from many sources to create a single '
 
         
         $ pip install virtualenv                     # if not already installed
-        $ mkdir conservationlands_venv
-        $ virtualenv conservationlands_venv
-        $ source conservationlands_venv/bin/activate # activate the env, posix
-        $ conservationlands_venv\Scripts\activate    # activate the env, windows
+        $ mkdir designatedlands_venv
+        $ virtualenv designatedlands_venv
+        $ source designatedlands_venv/bin/activate # activate the env, posix
+        $ designatedlands_venv\Scripts\activate    # activate the env, windows
         
 5. If you have git, download the repository and install dependencies with:
  
-        $ git clone https://github.com/smnorris/conservationlands.git
-        $ cd conservationlands
+        $ git clone https://github.com/smnorris/designatedlands.git
+        $ cd designatedlands
         $ pip install -r requirements.txt
     
-    If you don't have git, download and extract each of the non-pypi repositories manually (conservationlands, pgdb and bcdata), then install them and Fiona:
+    If you don't have git, download and extract each of the non-pypi repositories manually (designatedlands, pgdb and bcdata), then install them and Fiona:
 
         $ cd pgdb-master
         $ pip install .
         $ cd ../bcdata-master
         $ pip install .
         $ pip install Fiona     # or via downloaded wheel on Windows, see below
-        $ cd ../conservationlands-master
+        $ cd ../designatedlands-master
 
 5. Note that on Windows, to install the Fiona dependency you will likely have to manually download the pre-built wheel. [See the Fiona manual for details and a link to the wheel](https://github.com/Toblerity/Fiona#windows). Some further PATH configurations will be required if you are installing Fiona to a Python installed by ArcGIS.
 
 ## Configuration
-To modify the default database/files/folders used to hold the data, edit the `CONFIG` dictionary at the top of `conservationlands.py`  
+To modify the default database/files/folders used to hold the data, edit the `CONFIG` dictionary at the top of `designatedlands.py`  
 
 
 ```
 CONFIG = {"source_data": "source_data",
           "source_csv": "sources.csv",
-          "out_table": "conservation_lands",
-          "out_shp": "conservation_lands.shp",
-          "db_url":  "postgresql://postgres:postgres@localhost:5432/conservationlands",
+          "out_table": "designated_lands",
+          "out_shp": "designated_lands.shp",
+          "db_url":  "postgresql://postgres:postgres@localhost:5432/designatedlands",
           "n_processes": -1}
 ```
 
@@ -72,8 +72,8 @@ Before running the script, manually download all files defined in `sources.csv` 
 
 Once data are downloaded, script usage is:
 ```
-$ python conservationlands.py --help
-Usage: conservationlands.py [OPTIONS] COMMAND [ARGS]...
+$ python designatedlands.py --help
+Usage: designatedlands.py [OPTIONS] COMMAND [ARGS]...
 
 Options:
   --help  Show this message and exit.
@@ -82,15 +82,15 @@ Commands:
   create_db  Create an empty postgres db for processing
   dump       Dump output conservation lands layer to gdb
   load       Download data, load to postgres
-  overlay    Intersect layer with conservationlands
+  overlay    Intersect layer with designatedlands
   process    Create output conservation lands table
   run_all    Run complete conservation lands job
 ```
 
 For help regarding an individual command:
 ```
-$ python conservationlands.py load --help
-Usage: conservationlands.py load [OPTIONS]
+$ python designatedlands.py load --help
+Usage: designatedlands.py load [OPTIONS]
 
   Download data, load to postgres
 
@@ -106,19 +106,19 @@ Options:
 ### Examples
 Presuming all manual downloads specified are complete, process all data, then dump the results to shapefile:
 ```
-$ python conservationlands.py create_db
-$ python conservationlands.py load --email myemail@email.bc.ca
-$ python conservationlands.py process
-$ python conservationlands.py dump
+$ python designatedlands.py create_db
+$ python designatedlands.py load --email myemail@email.bc.ca
+$ python designatedlands.py process
+$ python designatedlands.py dump
 ```
 Or, run all the above steps in a single command:
 ```
-$ python conservationlands.py run_all
+$ python designatedlands.py run_all
 ```
 
 Most commands allow the user to specify inputs other than the default. For example, to load a single layer with **alias**=`park_provincial` as defined in a file `newparks_sources.csv` to the folder `newparks_download`, and copy to postgres:
 ```
-$ python conservationlands.py load \
+$ python designatedlands.py load \
   -a park_provincial \
   -s newparks_sources.csv \
   --email myemail@email.bc.ca \
@@ -129,10 +129,10 @@ $ python conservationlands.py load \
 In addition to creating the output conservation lands layer, this tool also provides a mechanism to overlay the results with administration or ecological units of your choice:
 
 ```
-$ python conservationlands.py overlay --help
-Usage: conservationlands.py overlay [OPTIONS] IN_FILE
+$ python designatedlands.py overlay --help
+Usage: designatedlands.py overlay [OPTIONS] IN_FILE
 
-  Intersect layer with conservationlands
+  Intersect layer with designatedlands
 
 Options:
   -l, --in_layer TEXT
@@ -141,14 +141,14 @@ Options:
   --help
 ```
 
-To overlay `conservationlands` with BC ecosections:
+To overlay `designatedlands` with BC ecosections:
 
 ```
 # get ecosection data 
 $ bcdata --email myemail@mail.bc.ca ecosections-ecoregion-ecosystem-classification-of-british-columbia
 
-# overlay with conservationlands layer to create output eco.gdb/ecosections_cnsrvtn
-$ python conservationlands.py overlay \
+# overlay with designatedlands layer to create output eco.gdb/ecosections_cnsrvtn
+$ python designatedlands.py overlay \
   ERC_ECOSECTIONS_SP.gdb \
   -l WHSE_TERRESTRIAL_ECOLOGY_ERC_ECOSECTIONS_SP_polygon \
   -o eco.gdb \

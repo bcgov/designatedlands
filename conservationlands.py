@@ -41,11 +41,11 @@ import pgdb
 CONFIG = {
     "source_data": "source_data",
     "source_csv": "sources.csv",
-    "out_table": "conservationlands",
-    "out_file": "conservationlands.gpkg",
+    "out_table": "designatedlands",
+    "out_file": "designatedlands.gpkg",
     "out_format": "GPKG",
     "db_url":
-    "postgresql://postgres:postgres@localhost:5432/conservationlands",
+    "postgresql://postgres:postgres@localhost:5432/designatedlands",
     "n_processes": multiprocessing.cpu_count() - 1
     }
 # --------------------------------------------
@@ -62,7 +62,7 @@ HELP = {
   "alias": "The 'alias' key identifing the source of interest, from source csv",
   "out_file": "Output geopackage name",
   "out_format": "Output format. Default GPKG (Geopackage)",
-  "out_table": 'Output conservation lands postgres table'}
+  "out_table": 'Output designated lands postgres table'}
 
 
 def get_files(path):
@@ -376,7 +376,7 @@ def preprocess(db, source_csv, alias=None):
     # create tile layer
     db.execute(db.queries["create_tiles"])
 
-    # for all conservation lands sources:
+    # for all designated lands sources:
     # - union/merge polygons
     # - create new table name prefixed with hierarchy
     # - retain just one column (designation), value equivalent to table name
@@ -535,7 +535,7 @@ def intersect(db, in_table, intersect_table, out_table, n_processes,
 
 
 def postprocess(db, sources, out_table, n_processes, tiles=None):
-    """Postprocess the output conservation lands table
+    """Postprocess the output designated lands table
     """
     # add category (rollup) column by creating lookup table from source.csv
     lookup_data = [dict(alias=s["clean_table"],
@@ -754,7 +754,7 @@ def get_layer_name(file, layer_name):
               help="Number of parallel processing threads to utilize")
 @click.option('--tiles', '-t', help="Comma separated list of tiles to process")
 def process(source_csv, out_table, resume, no_preprocess, n_processes, tiles):
-    """Create output conservation lands table
+    """Create output designated lands table
     """
     if tiles:
         all_tiles = set(tiles.split(","))
@@ -840,7 +840,7 @@ def process(source_csv, out_table, resume, no_preprocess, n_processes, tiles):
 @click.option('--n_processes', '-p', default=CONFIG["n_processes"],
               help="Number of parallel processing threads to utilize")
 def overlay(in_file, in_layer, out_file, out_format, new_layer_name, n_processes):
-    """Intersect layer with conservationlands"""
+    """Intersect layer with designatedlands"""
     # load in_file to postgres
     db = pgdb.connect(CONFIG["db_url"], schema="public")
     if not in_layer:
@@ -852,8 +852,8 @@ def overlay(in_file, in_layer, out_file, out_format, new_layer_name, n_processes
     tiles = [t for t in db["tiles"].distinct('map_tile')]
     # uncomment and adjust for debugging a specific tile
     # tiles = [t for t in tiles if t[:4] == '092K']
-    info("Intersecting %s with %s" % ('conservationlands', new_layer_name))
-    intersect(db, "conservationlands",
+    info("Intersecting %s with %s" % ('designatedlands', new_layer_name))
+    intersect(db, "designatedlands",
               new_layer_name, new_layer_name + "_overlay", n_processes, tiles)
     # dump result to file
     info("Dumping intersect to file %s " % out_file)
@@ -873,7 +873,7 @@ def overlay(in_file, in_layer, out_file, out_format, new_layer_name, n_processes
 @click.option('--out_format', '-of', default=CONFIG["out_format"],
               help=HELP["out_format"])
 def dump(out_table, out_file, out_format):
-    """Dump output conservation lands layer to gdb
+    """Dump output designated lands layer to gdb
     """
     info('Dumping %s to %s' % (out_table, out_file))
     sql = """SELECT
@@ -896,7 +896,7 @@ def dump(out_table, out_file, out_format):
 @click.option('--out_format', '-of', default=CONFIG["out_format"],
               help=HELP["out_format"])
 def run_all(source_csv, email, dl_path, out_table, out_file, out_format):
-    """ Run complete conservation lands job
+    """ Run complete designated lands job
     """
     create_db()
     load(source_csv, email, dl_path)
