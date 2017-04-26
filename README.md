@@ -48,12 +48,16 @@ To modify the default database/files/folders used to hold the data, edit the `CO
 
 
 ```
-CONFIG = {"source_data": "source_data",
-          "source_csv": "sources.csv",
-          "out_table": "designated_lands",
-          "out_shp": "designated_lands.shp",
-          "db_url":  "postgresql://postgres:postgres@localhost:5432/designatedlands",
-          "n_processes": -1}
+CONFIG = {
+    "source_data": "source_data",
+    "source_csv": "sources.csv",
+    "out_table": "designatedlands",
+    "out_file": "designatedlands.gpkg",
+    "out_format": "GPKG",
+    "db_url":
+    "postgresql://postgres:postgres@localhost:5432/designatedlands",
+    "n_processes": multiprocessing.cpu_count() - 1
+    }
 ```
 
 | KEY       | VALUE                                            |
@@ -61,6 +65,8 @@ CONFIG = {"source_data": "source_data",
 | `source_data`| path to folder that holds downloaded datasets |
 | `source_csv`| path to file that holds all data source definitions |
 | `out_table`| name of output table to create in postgres |
+| `out_file` | Output geopackage name" |
+| `out_format` | Output format. Default GPKG (Geopackage) |
 | `out_gdb`| path to output geodatabase |
 | `db_url`| [SQLAlchemy connection URL](http://docs.sqlalchemy.org/en/latest/core/engines.html#postgresql) pointing to the postgres database
 | `n_processes`| The inputs are broken up by tile and processed in parallel, define how many parallel processes to use. (default of -1 indicates number of cores on your machine minus one)|
