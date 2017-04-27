@@ -20,15 +20,19 @@
 CREATE UNLOGGED TABLE IF NOT EXISTS $out_table (
      id serial PRIMARY KEY,
      designation text,
+     designation_id text,
+     designation_name text,
      map_tile text,
      geom geometry
 );
 
 -- insert cleaned data
 INSERT INTO $out_table (designation, map_tile, geom)
-  SELECT designation, map_tile, geom
+  SELECT designation, designation_id, designation_name, map_tile, geom
   FROM (SELECT
           '$out_table'::TEXT as designation,
+          $designation_id_col as designation_id,
+          $designation_name_col as designation_name,
           b.map_tile,
   -- make sure the output is valid
           st_makevalid(
