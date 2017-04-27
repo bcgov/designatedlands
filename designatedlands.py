@@ -363,13 +363,18 @@ def clip(db, in_table, clip_table):
     db[in_table].create_index(["id"])
 
 
-def preprocess(db, source_csv, alias=None):
+def preprocess(db, source_csv, alias=None, rem_overlaps=True):
     """
     Before running the main processing job:
       - create comprehensive tiling layer
       - preprocess sources as specified in source_csv
     """
     sources = read_csv(source_csv)
+
+    if rem_overlaps:
+      clean_query = "clean_union"
+    else:
+      clean_query = "clean_union_overlaps"
 
     if alias:
         sources = [s for s in sources if s['alias'] == alias]
@@ -387,10 +392,11 @@ def preprocess(db, source_csv, alias=None):
         info("Tiling - dissolving - validating: %s" % source["alias"])
         db[source["clean_table"]].drop()
         lookup = {"out_table": source["clean_table"],
-                  "src_table": source["src_table"],
-                  "designation_id_col": source["designation_id_col"], 
-                  "designation_name_col": source["designation_name_col"]}
-        sql = db.build_query(db.queries["clean_union"], lookup)
+                  "src_table": source["src_table"]}
+        if not rem_overlaps:
+          lookup.update({"designation_id_col": source["designation_id_col"], 
+            "designation_name_col": source["designation_name_col"]})
+        sql = db.build_query(db.queries[clean_query], lookup)
         db.execute(sql)
 
     # apply pre-processing operation specified in sources.csv
