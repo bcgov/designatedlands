@@ -34,9 +34,6 @@ import fiona
 import bcdata
 import pgdb
 
-import psycopg2
-
-
 # --------------------------------------------
 # Change default database/paths/filenames etc here (see README.md)
 # --------------------------------------------
