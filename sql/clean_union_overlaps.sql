@@ -27,17 +27,19 @@ CREATE UNLOGGED TABLE IF NOT EXISTS $out_table (
 );
 
 -- insert cleaned data
-INSERT INTO $out_table (designation, map_tile, geom)
+INSERT INTO $out_table (designation, map_tile, designation_id, designation_name, geom)
   SELECT designation, designation_id, designation_name, map_tile, geom
   FROM (SELECT
           '$out_table'::TEXT as designation,
-          $designation_id_col as designation_id,
-          $designation_name_col as designation_name,
+          a.$designation_id_col as designation_id,
+          a.$designation_name_col as designation_name,
           b.map_tile,
   -- make sure the output is valid
           st_makevalid(
   -- dump
             (st_dump(
+                -- union to remove overlapping polys within the source
+            ST_Union(
   -- make buffer result multipart
               ST_Multi(
 -- buffer the features by 0 to help with validity
@@ -55,6 +57,7 @@ INSERT INTO $out_table (designation, map_tile, geom)
                   )
                 , 0)
                 )
+              )
             )).geom) as geom
         FROM $src_table a
         INNER JOIN tiles b ON ST_Intersects(a.geom, b.geom)

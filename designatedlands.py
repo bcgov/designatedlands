@@ -92,8 +92,10 @@ def read_csv(path):
         # for convenience, add the layer names to the dict
         hierarchy = str(source["hierarchy"]).zfill(2)
         clean_table = "c"+hierarchy+"_"+source["alias"]
+        clean_table_overlaps = "c"+hierarchy+"_overlaps_"+source["alias"]
         source.update({"src_table": source["alias"],
-                       "clean_table": clean_table})
+                       "clean_table": clean_table, 
+                       "clean_table_overlaps": clean_table_overlaps})
     return sorted(source_list, key=lambda k: k['hierarchy'])
 
 
@@ -856,11 +858,11 @@ def process_overlaps(source_csv, out_table, resume, no_preprocess, n_processes, 
     else:
         all_tiles = None
     db = pgdb.connect(CONFIG["db_url"], schema="public")
-    db.execute(db.queries["safe_diff"])
+    # db.execute(db.queries["safe_diff"])
     # run any required pre-processing
     # (no_preprocess flag is for development)
     if not no_preprocess:
-        preprocess(db, source_csv)
+        preprocess(db, source_csv, rem_overlaps = False)
 
     # create target table if not resuming from a bailed process
     if not resume:
