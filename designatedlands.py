@@ -34,13 +34,15 @@ import fiona
 import bcdata
 import pgdb
 
+import psycopg2
+
 
 # --------------------------------------------
 # Change default database/paths/filenames etc here (see README.md)
 # --------------------------------------------
 CONFIG = {
     "source_data": "source_data",
-    "source_csv": "sources.csv",
+    "source_csv": "sources_test.csv",
     "out_table": "designatedlands",
     "out_table_overlaps": "designatedlands_overlaps",
     "out_file": "designatedlands.gpkg",
