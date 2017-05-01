@@ -27,7 +27,7 @@ CREATE UNLOGGED TABLE IF NOT EXISTS $out_table (
 );
 
 -- insert cleaned data
-INSERT INTO $out_table (designation, map_tile, designation_id, designation_name, geom)
+INSERT INTO $out_table (designation, designation_id, designation_name, map_tile, geom)
   SELECT designation, designation_id, designation_name, map_tile, geom
   FROM (SELECT
           '$out_table'::TEXT as designation,
