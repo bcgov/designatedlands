@@ -11,22 +11,13 @@
 -- 
 -- See the License for the specific language governing permissions and limitations under the License.
 
-INSERT INTO $out_table_overlaps (designation, designation_id, designation_name, map_tile, geom)
+INSERT INTO $out_table (designation, designation_id, designation_name, map_tile, geom)
 
-WITH
-
-src_clip AS
-(SELECT
-   id,
+SELECT
    designation,
    designation_id,
    designation_name,
    map_tile,
-   geom
+   ST_MakeValid(geom) as geom
  FROM $in_table
- WHERE map_tile LIKE %s)
-
--- add to table
-SELECT designation, designation_id, designation_name, map_tile, ST_MakeValid(geom) as geom
-FROM src_clip
-WHERE GeometryType(geom) = 'MULTIPOLYGON'
+ WHERE map_tile LIKE %s -- AND GeometryType(geom) = 'MULTIPOLYGON'

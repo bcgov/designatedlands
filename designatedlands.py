@@ -323,11 +323,12 @@ def get_tiles(db, table, tile_table="tiles_250k"):
     return [r[0] for r in db.query(sql)]
 
 
-def parallel_tiled(sql, tile):
+def parallel_tiled(sql, tile, n_subs=2):
     """Create a connection and execute query for specified tile
+       n_subs is the number of places in the sql query that should be substituted by the tile name
     """
     db = pgdb.connect(CONFIG["db_url"], schema="public")
-    db.execute(sql, (tile+"%", tile+"%"))
+    db.execute(sql, (tile+"%",) * n_subs)
 
 
 def clip(db, in_table, clip_table):
@@ -374,8 +375,10 @@ def preprocess(db, source_csv, alias=None, rem_overlaps=True):
 
     if rem_overlaps:
       clean_query = "clean_union"
+      clean_table_nm = "clean_table"
     else:
       clean_query = "clean_union_overlaps"
+      clean_table_nm = "clean_table_overlaps"
 
     if alias:
         sources = [s for s in sources if s['alias'] == alias]
@@ -391,8 +394,8 @@ def preprocess(db, source_csv, alias=None, rem_overlaps=True):
                      if s["exclude"] != 'T' and s['hierarchy'] != 0]
     for source in clean_sources:
         info("Tiling - dissolving - validating: %s" % source["alias"])
-        db[source["clean_table"]].drop()
-        lookup = {"out_table": source["clean_table"],
+        db[source[clean_table_nm]].drop()
+        lookup = {"out_table": source[clean_table_nm],
                   "src_table": source["src_table"]}
         if not rem_overlaps:
           lookup.update({"designation_id_col": source["designation_id_col"], 
@@ -410,7 +413,7 @@ def preprocess(db, source_csv, alias=None, rem_overlaps=True):
         function = source["preprocess_operation"]
         # call the specified preprocess function
         globals()[function](db,
-                            source["clean_table"],
+                            source[clean_table_nm],
                             preprocess_lyr["alias"])
 
 
@@ -893,9 +896,6 @@ def process_overlaps(source_csv, out_table, resume, no_preprocess, n_processes, 
         db.execute("ALTER TABLE tiles ADD COLUMN designation_id text")
     if 'designation_name' not in db['tiles'].columns:
         db.execute("ALTER TABLE tiles ADD COLUMN designation_name text")
-    undesignated = {"clean_table_overlaps": "tiles",
-                    "category": None}
-    p_sources.append(undesignated)
 
     # iterate through all sources
     for source in p_sources:
@@ -918,16 +918,45 @@ def process_overlaps(source_csv, out_table, resume, no_preprocess, n_processes, 
         if n_processes == 1:
             for tile in tiles:
                 info(tile)
-                db.execute(sql, (tile + "%", tile + "%"))
+                info(sql)
+                db.execute(sql, (tile + "%",))
         else:
-            func = partial(parallel_tiled, sql)
+            func = partial(parallel_tiled, sql, n_subs=1) # Only one place in the sql to be substituted with the tile id
             pool = multiprocessing.Pool(processes=n_processes)
             pool.map(func, tiles)
             pool.close()
             pool.join()
 
+    ## Add tiles for rest of BC that is not designated
+    info("Inserting tiles into " + out_table + "_prelim")
+    sql = db.build_query(db.queries["add_non_des_tiles"],
+                         {"in_table": "tiles",
+                          "out_table": out_table+"_prelim"})
+    # Find distinct tiles in source (20k)
+    src_tiles = set(db["tiles"].distinct('map_tile'))
+    # only use tiles specified
+    if all_tiles:
+        tiles = all_tiles & src_tiles
+    else:
+        tiles = src_tiles
+    # Process by 250k tiles by using this query instead
+    # tiles = get_tiles(db, source["clean_table"])
+
+    # for testing, run only one process and report on tile
+    if n_processes == 1:
+        for tile in tiles:
+            info(tile)
+            info(sql)
+            db.execute(sql, (tile + "%", tile + "%"))
+    else:
+        func = partial(parallel_tiled, sql)
+        pool = multiprocessing.Pool(processes=n_processes)
+        pool.map(func, tiles)
+        pool.close()
+        pool.join()
+
     # clean up the output
-    postprocess(db, sources, out_table, n_processes, tiles)
+    # postprocess(db, sources, out_table, n_processes, tiles)
 
 
 @cli.command()
