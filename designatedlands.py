@@ -861,7 +861,7 @@ def process_overlaps(source_csv, out_table, resume, no_preprocess, n_processes, 
     else:
         all_tiles = None
     db = pgdb.connect(CONFIG["db_url"], schema="public")
-    # db.execute(db.queries["safe_diff"])
+    db.execute(db.queries["safe_diff"])
     # run any required pre-processing
     # (no_preprocess flag is for development)
     if not no_preprocess:
@@ -956,7 +956,7 @@ def process_overlaps(source_csv, out_table, resume, no_preprocess, n_processes, 
         pool.join()
 
     # clean up the output
-    # postprocess(db, sources, out_table, n_processes, tiles)
+    postprocess(db, sources, out_table, n_processes, tiles)
 
 
 @cli.command()
