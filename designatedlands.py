@@ -39,9 +39,8 @@ import pgdb
 # --------------------------------------------
 CONFIG = {
     "source_data": "source_data",
-    "source_csv": "sources_test.csv",
+    "source_csv": "sources.csv",
     "out_table": "designatedlands",
-    "out_table_overlaps": "designatedlands_overlaps",
     "out_file": "designatedlands.gpkg",
     "out_format": "GPKG",
     "db_url":
@@ -62,7 +61,7 @@ HELP = {
   "alias": "The 'alias' key identifing the source of interest, from source csv",
   "out_file": "Output geopackage name",
   "out_format": "Output format. Default GPKG (Geopackage)",
-  "out_table": 'Output designated lands postgres table'}
+  "out_table": 'Output designated lands postgres table. If choose --raw option in process operation, "_overlaps" will be appended to the out_table name.'}
 
 
 def get_files(path):
@@ -92,7 +91,7 @@ def read_csv(path):
         # for convenience, add the layer names to the dict
         hierarchy = str(source["hierarchy"]).zfill(2)
         clean_table = "c"+hierarchy+"_"+source["alias"]
-        clean_table_overlaps = "c"+hierarchy+"_overlaps_"+source["alias"]
+        clean_table_overlaps = "c"+hierarchy+"_ol_"+source["alias"]
         source.update({"src_table": source["alias"],
                        "clean_table": clean_table, 
                        "clean_table_overlaps": clean_table_overlaps})
@@ -707,7 +706,7 @@ def load(source_csv, email, dl_path, alias):
 
         # handle BCGW downloads
         if urlparse(source["url"]).hostname == 'catalogue.data.gov.bc.ca':
-            gdb = source["layer_in_file"].split(".")[1] + ".gdb"
+            gdb = source["layer_in_file"].split(".")[1].strip() + ".gdb"
             file = download_bcgw(source["url"], dl_path, email=email, gdb=gdb)
 
         # handle all other downloads
@@ -766,9 +765,21 @@ def get_layer_name(file, layer_name):
 @click.option('--n_processes', '-p', default=CONFIG["n_processes"],
               help="Number of parallel processing threads to utilize")
 @click.option('--tiles', '-t', help="Comma separated list of tiles to process")
-def process(source_csv, out_table, resume, no_preprocess, n_processes, tiles):
+@click.option('--raw', is_flag=True, default=False, help="Don't remove overlaps in source polygons")
+def process(source_csv, out_table, resume, no_preprocess, n_processes, tiles, raw):
     """Create output designated lands table
     """
+
+    clean_table_nm = 'clean_table'
+    create_target_qry = 'create_target'
+    populate_target_qry = 'populate_target'
+
+    if raw:
+        out_table = out_table + '_overlaps'
+        create_target_qry = create_target_qry + '_overlaps'
+        clean_table_nm = clean_table_nm + '_overlaps'
+        populate_target_qry = populate_target_qry + '_overlaps'
+
     if tiles:
         all_tiles = set(tiles.split(","))
     else:
@@ -778,13 +789,13 @@ def process(source_csv, out_table, resume, no_preprocess, n_processes, tiles):
     # run any required pre-processing
     # (no_preprocess flag is for development)
     if not no_preprocess:
-        preprocess(db, source_csv)
+        preprocess(db, source_csv, rem_overlaps = not raw)
 
     # create target table if not resuming from a bailed process
     if not resume:
         # create output table
         db[out_table+"_prelim"].drop()
-        db.execute(db.build_query(db.queries['create_target'],
+        db.execute(db.build_query(db.queries[create_target_qry],
                                   {"table": out_table+"_prelim"}))
 
     # filter sources - use only non-exlcuded sources with hierarchy > 0
@@ -805,19 +816,59 @@ def process(source_csv, out_table, resume, no_preprocess, n_processes, tiles):
         db.execute("UPDATE tiles SET id = tile_id")
     if 'designation' not in db['tiles'].columns:
         db.execute("ALTER TABLE tiles ADD COLUMN designation text")
-    undesignated = {"clean_table": "tiles",
-                    "category": None}
-    p_sources.append(undesignated)
+    if raw:
+        if 'designation_id' not in db['tiles'].columns:
+            db.execute("ALTER TABLE tiles ADD COLUMN designation_id text")
+        if 'designation_name' not in db['tiles'].columns:
+            db.execute("ALTER TABLE tiles ADD COLUMN designation_name text")
+    else:
+        undesignated = {"clean_table": "tiles",
+                        "category": None}
+        p_sources.append(undesignated)
 
     # iterate through all sources
     for source in p_sources:
-        info("Inserting %s into %s" % (source["clean_table"],
+        info("Inserting %s into %s" % (source[clean_table_nm],
                                        out_table+"_prelim"))
-        sql = db.build_query(db.queries["populate_target"],
-                             {"in_table": source["clean_table"],
+        sql = db.build_query(db.queries[populate_target_qry],
+                             {"in_table": source[clean_table_nm],
                               "out_table": out_table+"_prelim"})
         # Find distinct tiles in source (20k)
-        src_tiles = set(db[source["clean_table"]].distinct('map_tile'))
+        src_tiles = set(db[source[clean_table_nm]].distinct('map_tile'))
+        # only use tiles specified
+        if all_tiles:
+            tiles = all_tiles & src_tiles
+        else:
+            tiles = src_tiles
+        # Process by 250k tiles by using this query instead
+        # tiles = get_tiles(db, source["clean_table"])
+
+        # The number of places in the sql that tile id needs to looked up and replaced
+        if raw:
+            nsubs = 1
+        else:
+            nsubs = 2
+
+        # for testing, run only one process and report on tile
+        if n_processes == 1:
+            for tile in tiles:
+                info(tile)
+                db.execute(sql, (tile + "%", ) * nsubs)
+        else:
+            func = partial(parallel_tiled, sql, n_subs = nsubs)
+            pool = multiprocessing.Pool(processes=n_processes)
+            pool.map(func, tiles)
+            pool.close()
+            pool.join()
+
+    if raw: 
+        ## Add tiles for rest of BC that is not designated
+        info("Inserting tiles into " + out_table + "_prelim")
+        sql = db.build_query(db.queries["add_non_des_tiles"],
+                             {"in_table": "tiles",
+                              "out_table": out_table+"_prelim"})
+        # Find distinct tiles in source (20k)
+        src_tiles = set(db["tiles"].distinct('map_tile'))
         # only use tiles specified
         if all_tiles:
             tiles = all_tiles & src_tiles
@@ -837,123 +888,6 @@ def process(source_csv, out_table, resume, no_preprocess, n_processes, tiles):
             pool.map(func, tiles)
             pool.close()
             pool.join()
-
-    # clean up the output
-    postprocess(db, sources, out_table, n_processes, tiles)
-
-@cli.command()
-@click.option('--source_csv', '-s', default=CONFIG["source_csv"],
-              type=click.Path(exists=True), help=HELP['csv'])
-@click.option('--out_table', '-o', default=CONFIG["out_table_overlaps"],
-              help=HELP["out_table"])
-@click.option('--resume', '-r',
-              help='hierarchy number at which to resume processing')
-@click.option('--no_preprocess', is_flag=True,
-              help="Do not preprocess input data")
-@click.option('--n_processes', '-p', default=CONFIG["n_processes"],
-              help="Number of parallel processing threads to utilize")
-@click.option('--tiles', '-t', help="Comma separated list of tiles to process")
-def process_overlaps(source_csv, out_table, resume, no_preprocess, n_processes, tiles):
-    """Create output designated lands table
-    """
-    if tiles:
-        all_tiles = set(tiles.split(","))
-    else:
-        all_tiles = None
-    db = pgdb.connect(CONFIG["db_url"], schema="public")
-    db.execute(db.queries["safe_diff"])
-    # run any required pre-processing
-    # (no_preprocess flag is for development)
-    if not no_preprocess:
-        preprocess(db, source_csv, rem_overlaps = False)
-
-    # create target table if not resuming from a bailed process
-    if not resume:
-        # create output table
-        db[out_table+"_prelim"].drop()
-        db.execute(db.build_query(db.queries['create_target_overlaps'],
-                                  {"table": out_table+"_prelim"}))
-
-    # filter sources - use only non-exlcuded sources with hierarchy > 0
-    sources = [s for s in read_csv(source_csv)
-               if s['hierarchy'] != 0 and s["exclude"] != 'T']
-
-    # in case of bailing during tests/development, specify resume option to
-    # resume processing at specified hierarchy number
-    if resume:
-        p_sources = [s for s in sources if int(s["hierarchy"]) >= int(resume)]
-    else:
-        p_sources = sources
-
-    # Using the tiles layer, fill in gaps so all BC is included in output
-    # add 'id' to tiles table to match schema of other sources
-    if 'id' not in db['tiles'].columns:
-        db.execute("ALTER TABLE tiles ADD COLUMN id integer")
-        db.execute("UPDATE tiles SET id = tile_id")
-    if 'designation' not in db['tiles'].columns:
-        db.execute("ALTER TABLE tiles ADD COLUMN designation text")
-    if 'designation_id' not in db['tiles'].columns:
-        db.execute("ALTER TABLE tiles ADD COLUMN designation_id text")
-    if 'designation_name' not in db['tiles'].columns:
-        db.execute("ALTER TABLE tiles ADD COLUMN designation_name text")
-
-    # iterate through all sources
-    for source in p_sources:
-        info("Inserting %s into %s" % (source["clean_table_overlaps"],
-                                       out_table+"_prelim"))
-        sql = db.build_query(db.queries["populate_target_overlaps"],
-                             {"in_table": source["clean_table_overlaps"],
-                              "out_table": out_table+"_prelim"})
-        # Find distinct tiles in source (20k)
-        src_tiles = set(db[source["clean_table_overlaps"]].distinct('map_tile'))
-        # only use tiles specified
-        if all_tiles:
-            tiles = all_tiles & src_tiles
-        else:
-            tiles = src_tiles
-        # Process by 250k tiles by using this query instead
-        # tiles = get_tiles(db, source["clean_table"])
-
-        # for testing, run only one process and report on tile
-        if n_processes == 1:
-            for tile in tiles:
-                info(tile)
-                info(sql)
-                db.execute(sql, (tile + "%",))
-        else:
-            func = partial(parallel_tiled, sql, n_subs=1) # Only one place in the sql to be substituted with the tile id
-            pool = multiprocessing.Pool(processes=n_processes)
-            pool.map(func, tiles)
-            pool.close()
-            pool.join()
-
-    ## Add tiles for rest of BC that is not designated
-    info("Inserting tiles into " + out_table + "_prelim")
-    sql = db.build_query(db.queries["add_non_des_tiles"],
-                         {"in_table": "tiles",
-                          "out_table": out_table+"_prelim"})
-    # Find distinct tiles in source (20k)
-    src_tiles = set(db["tiles"].distinct('map_tile'))
-    # only use tiles specified
-    if all_tiles:
-        tiles = all_tiles & src_tiles
-    else:
-        tiles = src_tiles
-    # Process by 250k tiles by using this query instead
-    # tiles = get_tiles(db, source["clean_table"])
-
-    # for testing, run only one process and report on tile
-    if n_processes == 1:
-        for tile in tiles:
-            info(tile)
-            info(sql)
-            db.execute(sql, (tile + "%", tile + "%"))
-    else:
-        func = partial(parallel_tiled, sql)
-        pool = multiprocessing.Pool(processes=n_processes)
-        pool.map(func, tiles)
-        pool.close()
-        pool.join()
 
     # clean up the output
     postprocess(db, sources, out_table, n_processes, tiles)
