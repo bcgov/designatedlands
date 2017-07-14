@@ -1,0 +1,5 @@
+pgsql2shp -f designated_lands_dissolved.shp -h localhost -u postgres -P postgres designatedlands "SELECT category, designation, ST_Multi(ST_Union(f.geom)) as geom
+FROM designatedlands As f
+WHERE bc_boundary = 'bc_boundary_land_tiled' and 
+designation IS NOT NULL
+GROUP BY category, designation"
