@@ -11,6 +11,7 @@
 # See the License for the specific language governing permissions and limitations under the License.
 
 import os
+import re
 import logging
 import tempfile
 from urlparse import urlparse
@@ -746,8 +747,19 @@ def load(source_csv, email, dl_path, alias):
 # Check number of layers and only use layer name from sources.csv if > 1 layer, else use first
 def get_layer_name(file, layer_name):
     layers = fiona.listlayers(file)
+    # replace the . with _ in WHSE objects
+    if re.match("^WHSE_", layer_name):
+        layer_name = re.sub("\\.", "_", layer_name)
+
     if len(layers) > 1:
-        layer = layer_name
+        if not layer_name in layers:
+            # try looking if there is a layer called layername_polygon
+            if layer_name + '_polygon' in layers:
+                layer = layer_name + '_polygon'
+            else:
+                 raise Exception("cannot find layer name")
+        else:
+             layer = layer_name
     else:
         layer = layers[0]
     return layer
