@@ -56,5 +56,9 @@ target/
 # OS X
 .DS_Store
 
-# root GDBs - mostly outputs or temporary inputs
+# root GDBs and gpkpgs- mostly outputs or temporary inputs
 *.gdb
+*.gpkg
+
+# IDE stuff
+.vscode/
