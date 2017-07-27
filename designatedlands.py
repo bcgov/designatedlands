@@ -56,13 +56,13 @@ CHUNK_SIZE = 1024
 logging.basicConfig(level=logging.INFO)
 
 HELP = {
-  "csv": 'Path to csv that lists all input data sources',
-  "email": 'A valid email address, used for DataBC downloads',
-  "dl_path": 'Path to folder holding downloaded data',
-  "alias": "The 'alias' key identifing the source of interest, from source csv",
-  "out_file": "Output geopackage name",
-  "out_format": "Output format. Default GPKG (Geopackage)",
-  "out_table": 'Output designated lands postgres table. If choose --raw option in process operation, "_overlaps" will be appended to the out_table name.'}
+    "csv": 'Path to csv that lists all input data sources',
+    "email": 'A valid email address, used for DataBC downloads',
+    "dl_path": 'Path to folder holding downloaded data',
+    "alias": "The 'alias' key identifing the source of interest, from source csv",
+    "out_file": "Output geopackage name",
+    "out_format": "Output format. Default GPKG (Geopackage)",
+    "out_table": 'Output designated lands postgres table. If choose --raw option in process operation, "_overlaps" will be appended to the out_table name.'}
 
 
 def get_files(path):
@@ -94,7 +94,7 @@ def read_csv(path):
         clean_table = "c"+hierarchy+"_"+source["alias"]
         clean_table_overlaps = "c"+hierarchy+"_ol_"+source["alias"]
         source.update({"src_table": source["alias"],
-                       "clean_table": clean_table, 
+                       "clean_table": clean_table,
                        "clean_table_overlaps": clean_table_overlaps})
     return sorted(source_list, key=lambda k: k['hierarchy'])
 
@@ -287,10 +287,10 @@ def ogr2pg(db, in_file, in_layer=None, out_layer=None,
                '-t_srs '+t_srs,
                '-f PostgreSQL',
                '''PG:"host={h} user={u} dbname={db} password={pwd}"'''.format(
-                          h=db.host,
-                          u=db.user,
-                          db=db.database,
-                          pwd=db.password),
+                   h=db.host,
+                   u=db.user,
+                   db=db.database,
+                   pwd=db.password),
                '-lco OVERWRITE=YES',
                '-overwrite',
                '-lco SCHEMA={schema}'.format(schema=schema),
@@ -374,11 +374,11 @@ def preprocess(db, source_csv, alias=None, rem_overlaps=True):
     sources = read_csv(source_csv)
 
     if rem_overlaps:
-      clean_query = "clean_union"
-      clean_table_nm = "clean_table"
+        clean_query = "clean_union"
+        clean_table_nm = "clean_table"
     else:
-      clean_query = "clean_union_overlaps"
-      clean_table_nm = "clean_table_overlaps"
+        clean_query = "clean_union_overlaps"
+        clean_table_nm = "clean_table_overlaps"
 
     if alias:
         sources = [s for s in sources if s['alias'] == alias]
@@ -398,8 +398,8 @@ def preprocess(db, source_csv, alias=None, rem_overlaps=True):
         lookup = {"out_table": source[clean_table_nm],
                   "src_table": source["src_table"]}
         if not rem_overlaps:
-          lookup.update({"designation_id_col": source["designation_id_col"], 
-            "designation_name_col": source["designation_name_col"]})
+            lookup.update({"designation_id_col": source["designation_id_col"],
+                          "designation_name_col": source["designation_name_col"]})
         sql = db.build_query(db.queries[clean_query], lookup)
         db.execute(sql)
 
@@ -757,9 +757,9 @@ def get_layer_name(file, layer_name):
             if layer_name + '_polygon' in layers:
                 layer = layer_name + '_polygon'
             else:
-                 raise Exception("cannot find layer name")
+                raise Exception("cannot find layer name")
         else:
-             layer = layer_name
+            layer = layer_name
     else:
         layer = layers[0]
     return layer
@@ -801,7 +801,7 @@ def process(source_csv, out_table, resume, no_preprocess, n_processes, tiles, ra
     # run any required pre-processing
     # (no_preprocess flag is for development)
     if not no_preprocess:
-        preprocess(db, source_csv, rem_overlaps = not raw)
+        preprocess(db, source_csv, rem_overlaps=not raw)
 
     # create target table if not resuming from a bailed process
     if not resume:
@@ -867,13 +867,13 @@ def process(source_csv, out_table, resume, no_preprocess, n_processes, tiles, ra
                 info(tile)
                 db.execute(sql, (tile + "%", ) * nsubs)
         else:
-            func = partial(parallel_tiled, sql, n_subs = nsubs)
+            func = partial(parallel_tiled, sql, n_subs=nsubs)
             pool = multiprocessing.Pool(processes=n_processes)
             pool.map(func, tiles)
             pool.close()
             pool.join()
 
-    if raw: 
+    if raw:
         ## Add tiles for rest of BC that is not designated
         info("Inserting tiles into " + out_table + "_prelim")
         sql = db.build_query(db.queries["add_non_des_tiles"],
@@ -908,14 +908,19 @@ def process(source_csv, out_table, resume, no_preprocess, n_processes, tiles, ra
 @cli.command()
 @click.argument('in_file', type=click.Path(exists=True))
 @click.option('--in_layer', '-l', help="Input layer name")
+@click.option('--dump_file', is_flag=True, default=False,
+              help="Should it dump to a file as specified by out_file and out_format?")
 @click.option('--out_file', '-o', default=CONFIG["out_file"],
               help=HELP["out_file"])
 @click.option('--out_format', '-of', default=CONFIG["out_format"],
               help=HELP["out_format"])
+@click.option('--aggregate_fields', '-af', default="",
+              help="Fields to aggregate by, separated by commas (only used if --dump_file flag is used")
 @click.option('--new_layer_name', '-nln', help="Output layer name")
 @click.option('--n_processes', '-p', default=CONFIG["n_processes"],
               help="Number of parallel processing threads to utilize")
-def overlay(in_file, in_layer, out_file, out_format, new_layer_name, n_processes):
+def overlay(in_file, in_layer, dump_file, out_file, out_format, aggregate_fields,
+            new_layer_name, n_processes):
     """Intersect layer with designatedlands"""
     # load in_file to postgres
     db = pgdb.connect(CONFIG["db_url"], schema="public")
@@ -923,6 +928,9 @@ def overlay(in_file, in_layer, out_file, out_format, new_layer_name, n_processes
         in_layer = fiona.listlayers(in_file)[0]
     if not new_layer_name:
         new_layer_name = in_layer
+
+    out_layer = new_layer_name + "_overlay"
+
     ogr2pg(db, in_file, in_layer=in_layer, out_layer=new_layer_name)
     # pull distinct tiles iterable into a list
     tiles = [t for t in db["tiles"].distinct('map_tile')]
@@ -930,15 +938,13 @@ def overlay(in_file, in_layer, out_file, out_format, new_layer_name, n_processes
     # tiles = [t for t in tiles if t[:4] == '092K']
     info("Intersecting %s with %s" % ('designatedlands', new_layer_name))
     intersect(db, "designatedlands",
-              new_layer_name, new_layer_name + "_overlay", n_processes, tiles)
-    # dump result to file
-    info("Dumping intersect to file %s " % out_file)
-    pg2ogr(CONFIG["db_url"],
-           "SELECT * FROM %s_overlay" % new_layer_name,
-           out_format,
-           out_file,
-           new_layer_name,
-           geom_type="MULTIPOLYGON")
+              new_layer_name, out_layer, n_processes, tiles)
+
+    if dump_file:
+        # dump result to file
+        info("Dumping intersect to file %s " % out_file)
+
+        dump(out_layer, out_file, out_format, aggregate_fields)
 
 
 @cli.command()
@@ -948,15 +954,23 @@ def overlay(in_file, in_layer, out_file, out_format, new_layer_name, n_processes
               help=HELP["out_file"])
 @click.option('--out_format', '-of', default=CONFIG["out_format"],
               help=HELP["out_format"])
-def dump(out_table, out_file, out_format):
-    """Dump output designated lands layer to gdb
+@click.option('--aggregate_fields', '-af', default="",
+              help="Fields to aggregate by, separated by commas")
+def dump(out_table, out_file, out_format, aggregate_fields):
+    """Dump output designated lands layer to file
     """
     info('Dumping %s to %s' % (out_table, out_file))
-    sql = """SELECT
-               designation, category, bc_boundary, map_tile, geom
-             FROM {t}
-          """.format(t=out_table)
-    pg2ogr(CONFIG["db_url"], sql, out_format, out_file, out_table,
+
+    if len(aggregate_fields):
+        sql_string = """SELECT {f}, ST_MakeValid(ST_Multi(ST_Union(a.geom))) as geom
+                        FROM {t} as a
+                        WHERE bc_boundary = 'bc_boundary_land_tiled'
+                        GROUP BY {f}
+                     """.format(t=out_table, f=aggregate_fields)
+    else:
+        sql_string = "SELECT *, ST_MakeValid(geom) as geom FROM %s" % out_table
+
+    pg2ogr(CONFIG["db_url"], sql_string, out_format, out_file, out_table,
            geom_type="MULTIPOLYGON")
 
 
