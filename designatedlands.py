@@ -962,11 +962,17 @@ def dump(out_table, out_file, out_format, aggregate_fields):
     info('Dumping %s to %s' % (out_table, out_file))
 
     if len(aggregate_fields):
-        sql_string = """SELECT {f}, ST_MakeValid(ST_Multi(ST_Union(a.geom))) as geom
-                        FROM {t} as a
+        sql_string = """SELECT {f}, ST_MakeValid(ST_Multi(ST_Buffer(ST_Union(ST_Buffer(geom, 0.001)), -0.001)))
+                        FROM {t}
                         WHERE bc_boundary = 'bc_boundary_land_tiled'
                         GROUP BY {f}
                      """.format(t=out_table, f=aggregate_fields)
+        # This is the better option if it will work:
+        # sql_string = """SELECT {f}, ST_Union(ST_MakeValid(ST_SnapToGrid(geom, 0.01))) as geom
+        #                 FROM {t}
+        #                 WHERE bc_boundary = 'bc_boundary_land_tiled'
+        #                 GROUP BY {f}
+        #              """.format(t=out_table, f=aggregate_fields)
     else:
         sql_string = "SELECT *, ST_MakeValid(geom) as geom FROM %s" % out_table
 
