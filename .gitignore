@@ -58,7 +58,7 @@ target/
 
 # root GDBs and gpkpgs- mostly outputs or temporary inputs
 *.gdb
-*.gpkg
+*.gpkg*
 
 # IDE stuff
 .vscode/
