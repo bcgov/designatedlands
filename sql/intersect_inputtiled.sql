@@ -47,7 +47,7 @@ SELECT
             ST_CollectionExtract(
                ST_Intersection(
                   ST_MakeValid(a.geom), ST_MakeValid(
-                                            ST_SnapToGrid(b.geom, .01))
+                                            ST_SnapToGrid(b.geom, .001))
                                )
                , 3)
             )
