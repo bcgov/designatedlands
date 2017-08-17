@@ -47,7 +47,7 @@ target_intersections AS
    ST_Union(
        ST_Buffer(
          ST_CollectionExtract(
-           ST_SnapToGrid(a.output_geom, .001), 3), 0.001)) AS geom
+           ST_SnapToGrid(a.output_geom, .001), 3), 0.001, 'join=mitre')) AS geom
 FROM all_intersects a
 GROUP BY a.input_id),
 
