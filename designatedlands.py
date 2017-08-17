@@ -45,7 +45,7 @@ CONFIG = {
     "out_file": "designatedlands.gpkg",
     "out_format": "GPKG",
     "db_url":
-    "postgresql://postgres:postgres@localhost:5432/designatedlands",
+    "postgresql://postgres:postgres@localhost:5432/designatedlands2",
     "n_processes": multiprocessing.cpu_count() - 1
     }
 # --------------------------------------------
@@ -927,9 +927,9 @@ def overlay(in_file, in_layer, dump_file, out_file, out_format, aggregate_fields
     if not in_layer:
         in_layer = fiona.listlayers(in_file)[0]
     if not new_layer_name:
-        new_layer_name = in_layer
+        new_layer_name = in_layer[:63] # Maximum table name length is 63
 
-    out_layer = new_layer_name + "_overlay"
+    out_layer = new_layer_name[:50] + "_overlay"
 
     ogr2pg(db, in_file, in_layer=in_layer, out_layer=new_layer_name)
     # pull distinct tiles iterable into a list
@@ -962,19 +962,17 @@ def dump(out_table, out_file, out_format, aggregate_fields):
     info('Dumping %s to %s' % (out_table, out_file))
 
     if len(aggregate_fields):
-        sql_string = """SELECT {f}, ST_MakeValid(ST_Multi(ST_Buffer(ST_Union(ST_Buffer(geom, 0.001)), -0.001)))
+        sql_string = """SELECT {f}, ST_Union(ST_MakeValid(geom)) as geom
                         FROM {t}
                         WHERE bc_boundary = 'bc_boundary_land_tiled'
                         GROUP BY {f}
                      """.format(t=out_table, f=aggregate_fields)
-        # This is the better option if it will work:
-        # sql_string = """SELECT {f}, ST_Union(ST_MakeValid(ST_SnapToGrid(geom, 0.01))) as geom
-        #                 FROM {t}
-        #                 WHERE bc_boundary = 'bc_boundary_land_tiled'
-        #                 GROUP BY {f}
-        #              """.format(t=out_table, f=aggregate_fields)
     else:
-        sql_string = "SELECT *, ST_MakeValid(geom) as geom FROM %s" % out_table
+        sql_string = """SELECT * 
+                        FROM {t} a
+                     """.format(t=out_table)
+
+    info(sql_string)
 
     pg2ogr(CONFIG["db_url"], sql_string, out_format, out_file, out_table,
            geom_type="MULTIPOLYGON")
