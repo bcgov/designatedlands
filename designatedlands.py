@@ -45,7 +45,7 @@ CONFIG = {
     "out_file": "designatedlands.gpkg",
     "out_format": "GPKG",
     "db_url":
-    "postgresql://postgres:postgres@localhost:5432/designatedlands2",
+    "postgresql://postgres:postgres@localhost:5432/designatedlands",
     "n_processes": multiprocessing.cpu_count() - 1
     }
 # --------------------------------------------
