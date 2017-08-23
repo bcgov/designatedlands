@@ -51,7 +51,7 @@ INSERT INTO $out_table (designation, designation_id, designation_name, map_tile,
 -- intersect with tiles
                       CASE
                         WHEN ST_CoveredBy(a.geom, b.geom) THEN a.geom
-                        ELSE ST_Intersection(a.geom, b.geom)
+                        ELSE ST_Intersection(ST_MakeValid(a.geom), b.geom)
                       END
                     , 3)
                   )
