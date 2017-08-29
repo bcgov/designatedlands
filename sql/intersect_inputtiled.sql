@@ -29,7 +29,7 @@ intersect_tile AS
              ST_Intersection(
                   ST_MakeValid(
                       ST_SnapToGrid(
-                           ST_Buffer(i.geom, 0), .001)), tile.geom),  3)
+                           ST_Buffer(i.geom, 0), 0.001)), tile.geom),  3)
   END as geom
   FROM $intersect_table i
   INNER JOIN $tile_table tile ON ST_Intersects(ST_CollectionExtract(i.geom, 3), ST_CollectionExtract(tile.geom, 3))
@@ -47,7 +47,7 @@ SELECT
             ST_CollectionExtract(
                ST_Intersection(
                   ST_MakeValid(a.geom), ST_MakeValid(
-                                            ST_SnapToGrid(b.geom, .001))
+                                            ST_SnapToGrid(b.geom, 0.001))
                                )
                , 3)
             )

@@ -47,7 +47,7 @@ target_intersections AS
    ST_Union(
        ST_Buffer(
          ST_CollectionExtract(
-           ST_SnapToGrid(a.output_geom, .001), 3), 0.001, 'join=mitre')) AS geom
+           ST_SnapToGrid(a.output_geom, 0.001), 3), 0.001, 'join=mitre')) AS geom
 FROM all_intersects a
 GROUP BY a.input_id),
 
@@ -69,11 +69,11 @@ FROM
              st_makevalid(
                 st_buffer(
                    st_snap(
-                      st_snaptogrid(i.geom, .01), u.geom, 1), 0)),
+                      st_snaptogrid(i.geom, .001), u.geom, 1), 0)),
 
              st_makevalid(
                 st_buffer(
-                   st_snaptogrid(u.geom, .01), 0)))
+                   st_snaptogrid(u.geom, .001), 0)))
         */
 
         -- catch exceptions

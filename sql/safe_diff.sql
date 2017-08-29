@@ -25,11 +25,11 @@ BEGIN
                  ST_Makevalid(
                     ST_Buffer(
                        ST_Snap(
-                          --ST_Snaptogrid(geom_a, .01)
+                          --ST_Snaptogrid(geom_a, .001)
                           geom_a, geom_b, .1), 0)),
                  ST_Makevalid(
                     ST_Buffer(
-                       --ST_Snaptogrid(geom_b, .01)
+                       --ST_Snaptogrid(geom_b, .001)
                        geom_b, 0)));
     EXCEPTION
         WHEN OTHERS THEN
