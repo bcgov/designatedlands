@@ -547,11 +547,11 @@ def intersect(db, in_table, intersect_table, out_table, n_processes,
                """.format(t=out_table))
 
 
-def postprocess(db, sources, out_table, n_processes, tiles=None):
+def postprocess(db, sources, clean_table, out_table, n_processes, tiles=None):
     """Postprocess the output designated lands table
     """
     # add category (rollup) column by creating lookup table from source.csv
-    lookup_data = [dict(alias=s["clean_table"],
+    lookup_data = [dict(alias=s[clean_table],
                         category=s["category"])
                    for s in sources if s["category"]]
     # create lookup table
@@ -902,7 +902,7 @@ def process(source_csv, out_table, resume, no_preprocess, n_processes, tiles, ra
             pool.join()
 
     # clean up the output
-    postprocess(db, sources, out_table, n_processes, tiles)
+    postprocess(db, sources, clean_table_nm, out_table, n_processes, tiles)
 
 
 @cli.command()
@@ -962,7 +962,7 @@ def dump(out_table, out_file, out_format, aggregate_fields):
     info('Dumping %s to %s' % (out_table, out_file))
 
     if len(aggregate_fields):
-        sql_string = """SELECT {f}, ST_Union(ST_MakeValid(geom)) as geom
+        sql_string = """SELECT {f}, ST_Union(ST_CollectionExtract(ST_MakeValid(geom), 3)) as geom
                         FROM {t}
                         WHERE bc_boundary = 'bc_boundary_land_tiled'
                         GROUP BY {f}
