@@ -24,15 +24,15 @@ WITH
 intersect_tile AS
 (SELECT $intersect_columns,
   CASE
-    WHEN ST_CoveredBy(ST_CollectionExtract(i.geom, 3), tile.geom) THEN ST_MakeValid(i.geom)
+    WHEN ST_CoveredBy(ST_CollectionExtract(i.geom, 3), ST_CollectionExtract(tile.geom, 3)) THEN ST_MakeValid(i.geom)
     ELSE ST_CollectionExtract(
              ST_Intersection(
                   ST_MakeValid(
                       ST_SnapToGrid(
-                           ST_Buffer(i.geom, 0), .001)), tile.geom),  3)
+                           ST_Buffer(i.geom, 0), 0.001)), tile.geom),  3)
   END as geom
   FROM $intersect_table i
-  INNER JOIN $tile_table tile ON ST_Intersects(i.geom, tile.geom)
+  INNER JOIN $tile_table tile ON ST_Intersects(ST_CollectionExtract(i.geom, 3), ST_CollectionExtract(tile.geom, 3))
  WHERE tile.map_tile LIKE %s)
 
 
@@ -47,11 +47,11 @@ SELECT
             ST_CollectionExtract(
                ST_Intersection(
                   ST_MakeValid(a.geom), ST_MakeValid(
-                                            ST_SnapToGrid(b.geom, .01))
+                                            ST_SnapToGrid(b.geom, 0.001))
                                )
                , 3)
             )
   END as geom
 FROM intersect_tile a
-INNER JOIN $in_table b ON ST_Intersects(a.geom, b.geom)
+INNER JOIN $in_table b ON ST_Intersects(ST_CollectionExtract(a.geom, 3), ST_CollectionExtract(b.geom, 3))
 WHERE b.map_tile LIKE %s;

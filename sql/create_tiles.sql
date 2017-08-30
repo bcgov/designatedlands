@@ -22,11 +22,11 @@ CREATE INDEX ON tiles (map_tile);
 CREATE INDEX tiles_gidx ON tiles USING GIST (geom) ;
 
 INSERT INTO tiles (map_tile, geom)
-SELECT map_tile, geom FROM tiles_20k;
+SELECT map_tile, ST_SnapToGrid(geom, 0.001) as geom FROM tiles_20k;
 
 INSERT INTO tiles (map_tile, geom)
 SELECT a.map_tile||'000',
-ST_Multi(ST_CollectionExtract(st_difference(a.geom, st_union(b.geom)), 3))
+ST_SnapToGrid(ST_Multi(ST_CollectionExtract(st_difference(a.geom, st_union(b.geom)), 3)), 0.001)
 FROM tiles_250k a
 INNER JOIN tiles_20k b
 ON ST_Intersects(a.geom, b.geom)

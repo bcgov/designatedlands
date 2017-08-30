@@ -1,17 +1,4 @@
--- Copyright 2017 Province of British Columbia
--- 
--- Licensed under the Apache License, Version 2.0 (the "License");
--- you may not use this file except in compliance with the License.
--- You may obtain a copy of the License at
--- 
--- http://www.apache.org/licenses/LICENSE-2.0
--- 
--- Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on an "AS IS" BASIS,
--- WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
--- 
--- See the License for the specific language governing permissions and limitations under the License.
-
-INSERT INTO $out_table (designation, map_tile, geom)
+INSERT INTO $out_table (designation, designation_id, designation_name, map_tile, geom)
 
 WITH
 
@@ -19,6 +6,8 @@ src_clip AS
 (SELECT
    id,
    designation,
+   designation_id,
+   designation_name,
    map_tile,
    geom
  FROM $in_table
@@ -35,12 +24,8 @@ all_intersects AS
      ST_SnapToGrid(o.geom, 0.001)) as output_geom
 FROM src_clip AS i
 INNER JOIN dest_clip AS o
-ON ST_Intersects(o.geom, i.geom)),
+ON ST_Intersects(ST_CollectionExtract(o.geom, 3), ST_CollectionExtract(i.geom, 3))),
 
--- Union the existing intersecting polys in the output/target layer
--- To reduce topology exceptions, reduce precision of interesecting records
--- because many edges are similar/parallel
--- http://tsusiatsoftware.net/jts/jts-faq/jts-faq.html#D9
 target_intersections AS
 (SELECT
    a.input_id AS id,
@@ -55,12 +40,16 @@ difference AS (
 SELECT
   id,
   designation,
+  designation_id,
+  designation_name,
   map_tile,
   st_multi(st_union(geom)) AS geom
 FROM
     (SELECT
        i.id as id,
        i.designation as designation,
+       i.designation_id as designation_id,
+       i.designation_name as designation_name,
        i.map_tile as map_tile,
        (ST_Dump(COALESCE(
         -- no exception catching
@@ -86,26 +75,27 @@ FROM
      ) AS foo
 -- discard very small differences
 WHERE st_area(geom) > 10
-GROUP BY foo.id, foo.designation, foo.map_tile
+GROUP BY foo.id, foo.designation, foo.designation_id, foo.designation_name, foo.map_tile
 ),
 
-
--- finally, non-intersecting records
+-- Non-intersecting records
 non_intersections AS
 (SELECT
   i.id,
   i.designation,
+  i.designation_id,
+  i.designation_name,
   i.map_tile,
   ST_Multi(i.geom) as geom
 FROM src_clip i
 LEFT JOIN all_intersects a ON i.id = a.input_id
 WHERE a.input_id IS null)
 
-
 -- combine things and make sure we aren't inserting point or line intersections
-SELECT designation, map_tile, ST_MakeValid(geom) as geom
+
+SELECT designation, designation_id, designation_name, map_tile, ST_MakeValid(geom) as geom
 FROM difference
-WHERE GeometryType(geom) = 'MULTIPOLYGON'
+WHERE GeometryType(geom) = 'MULTIPOLYGON' and designation is null
 UNION ALL
-SELECT designation, map_tile, ST_MakeValid(geom) as geom
+SELECT designation, designation_id, designation_name, map_tile, ST_MakeValid(geom) as geom
 FROM non_intersections
