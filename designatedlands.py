@@ -668,17 +668,10 @@ def cli():
 
 
 @cli.command()
-@click.option('--drop', '-d', is_flag=True, help="Drop the existing database")
-def create_db(drop):
-    """Create an empty postgres db for processing
+def create_db():
+    """Create an empty postgis enabled db for processing
     """
-    parsed_url = urlparse(CONFIG["db_url"])
-    db_name = parsed_url.path
-    db_name = db_name.strip('/')
-    db = pgdb.connect("postgresql://"+parsed_url.netloc)
-    if drop:
-        db.execute("DROP DATABASE "+db_name)
-    db.execute("CREATE DATABASE "+db_name)
+    pgdb.create_db(CONFIG["db_url"])
     db = pgdb.connect(CONFIG["db_url"])
     db.execute("CREATE EXTENSION postgis")
 
@@ -968,7 +961,7 @@ def dump(out_table, out_file, out_format, aggregate_fields):
                         GROUP BY {f}
                      """.format(t=out_table, f=aggregate_fields)
     else:
-        sql_string = """SELECT * 
+        sql_string = """SELECT *
                         FROM {t} a
                      """.format(t=out_table)
 
