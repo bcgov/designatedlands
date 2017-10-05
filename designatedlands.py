@@ -327,7 +327,7 @@ def parallel_tiled(sql, tile, n_subs=2):
     """Create a connection and execute query for specified tile
        n_subs is the number of places in the sql query that should be substituted by the tile name
     """
-    db = pgdb.connect(CONFIG["db_url"], schema="public")
+    db = pgdb.connect(CONFIG["db_url"], schema="public", multiprocessing=True)
     db.execute(sql, (tile+"%",) * n_subs)
 
 
