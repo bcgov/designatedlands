@@ -576,7 +576,7 @@ def postprocess(db, sources, clean_table, out_table, n_processes, tiles=None):
     # Remove national park names from the national park tags
     sql = """UPDATE {t}
              SET designation = 'c01_park_national'
-             WHERE designation LIKE 'c01_park_national%'
+             WHERE designation LIKE 'c01_park_national%%'
           """.format(t=out_table+"_prelim")
     db.execute(sql)
     # create marine-terrestrial layer
