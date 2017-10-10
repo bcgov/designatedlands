@@ -269,48 +269,6 @@ def get_compressed_file_wrapper(path):
         return ZipCompatibleTarFile.open(path, 'r:bz2')
 
 
-def ogr2pg(db, in_file, in_layer=None, out_layer=None,
-           schema='public', t_srs='EPSG:3005', sql=None):
-    """
-    Load a layer to provided pgdb database connection using OGR2OGR
-
-    SQL provided is like the ESRI where_clause, but in SQLITE dialect:
-    SELECT * FROM <in_layer> WHERE <sql>
-    """
-    # if not provided a layer name, use the name of the input file
-    if not in_layer:
-        in_layer = os.path.splitext(os.path.basename(in_file))[0]
-    if not out_layer:
-        out_layer = in_layer.lower()
-    command = ['ogr2ogr',
-               '--config PG_USE_COPY YES',
-               '-t_srs '+t_srs,
-               '-f PostgreSQL',
-               '''PG:"host={h} user={u} dbname={db} password={pwd}"'''.format(
-                   h=db.host,
-                   u=db.user,
-                   db=db.database,
-                   pwd=db.password),
-               '-lco OVERWRITE=YES',
-               '-overwrite',
-               '-lco SCHEMA={schema}'.format(schema=schema),
-               '-lco GEOMETRY_NAME=geom',
-               '-dim 2',
-               '-nln '+out_layer,
-               '-nlt PROMOTE_TO_MULTI',
-               in_file,
-               in_layer]
-
-    if sql:
-        command.insert(4,
-                       '-sql "SELECT * FROM %s WHERE %s" -dialect SQLITE' %
-                       (in_layer, sql))
-        # remove layer name, it is ignored in combination with sql
-        command.pop()
-    info('Loading %s to %s' % (out_layer, db.url))
-    subprocess.call(" ".join(command), shell=True)
-
-
 def get_tiles(db, table, tile_table="tiles_250k"):
     """Return a list of all intersecting tiles from specified layer
     """
@@ -587,81 +545,6 @@ def postprocess(db, sources, clean_table, out_table, n_processes, tiles=None):
               tiles)
 
 
-def pg2ogr(db_url, sql, driver, outfile, outlayer=None, column_remap=None,
-           geom_type=None):
-    """
-    A wrapper around ogr2ogr, for quickly dumping a postgis query to file.
-    Suppported formats are ["ESRI Shapefile", "GeoJSON", "FileGDB", "GPKG"]
-       - for GeoJSON, transforms to EPSG:4326
-       - for Shapefile, consider supplying a column_remap dict
-       - for FileGDB, geom_type is required
-         (https://trac.osgeo.org/gdal/ticket/4186)
-    """
-    filename, ext = os.path.splitext(outfile)
-    if not outlayer:
-        outlayer = filename
-    u = urlparse(db_url)
-    pgcred = 'host={h} user={u} dbname={db} password={p}'.format(h=u.hostname,
-                                                                 u=u.username,
-                                                                 db=u.path[1:],
-                                                                 p=u.password)
-    # use a VRT so we can remap columns if a lookoup is provided
-    if column_remap:
-        # if specifiying output field names, all fields have to be specified
-        # rather than try and parse the input sql, just do a test run of the
-        # query and grab column names from that
-        db = pgdb.connect(db_url)
-        columns = [c for c in db.engine.execute(sql).keys() if c != 'geom']
-        # make sure all columns are represented in the remap
-        for c in columns:
-            if c not in column_remap.keys():
-                column_remap[c] = c
-        field_remap_xml = " \n".join([
-            '<Field name="'+column_remap[c]+'" src="'+c+'"/>'
-            for c in columns])
-    else:
-        field_remap_xml = ""
-    vrt = """<OGRVRTDataSource>
-               <OGRVRTLayer name="{layer}">
-                 <SrcDataSource>PG:{pgcred}</SrcDataSource>
-                 <SrcSQL>{sql}</SrcSQL>
-               {fieldremap}
-               </OGRVRTLayer>
-             </OGRVRTDataSource>
-          """.format(layer=outlayer,
-                     sql=escape(sql.replace("\n", " ")),
-                     pgcred=pgcred,
-                     fieldremap=field_remap_xml)
-    vrtpath = os.path.join(tempfile.gettempdir(), filename+".vrt")
-    if os.path.exists(vrtpath):
-        os.remove(vrtpath)
-    with open(vrtpath, "w") as vrtfile:
-        vrtfile.write(vrt)
-    # allow appending to filegdb and specify the geometry type
-    if driver == 'FileGDB':
-        nlt = "-nlt "+geom_type
-        append = "-append"
-    else:
-        nlt = ""
-        append = ""
-    command = """ogr2ogr \
-                    -progress \
-                    -f "{driver}" {nlt} {append}\
-                    {outfile} \
-                    {vrt}
-              """.format(driver=driver,
-                         nlt=nlt,
-                         append=append,
-                         outfile=outfile,
-                         vrt=vrtpath)
-    # translate GeoJSON to EPSG:4326
-    if driver == 'GeoJSON':
-        command = command.replace("""-f "GeoJSON" """,
-                                  """-f "GeoJSON" -t_srs EPSG:4326""")
-    info(command)
-    subprocess.call(command, shell=True)
-
-
 @click.group()
 def cli():
     pass
@@ -718,11 +601,8 @@ def load(source_csv, email, dl_path, alias):
         layer = get_layer_name(file, source["layer_in_file"])
 
         # load downloaded data to postgres
-        ogr2pg(db,
-               file,
-               in_layer=layer,
-               out_layer=source["alias"],
-               sql=source["query"])
+        db.ogr2pg(file, in_layer=layer, out_layer=source["alias"],
+                  sql=source["query"])
 
     # process manually downloaded sources
     for source in [s for s in sources if s["manual_download"] == 'T']:
@@ -730,11 +610,8 @@ def load(source_csv, email, dl_path, alias):
         if not os.path.exists(file):
             raise Exception(file + " does not exist, download it manually")
         layer = get_layer_name(file, source["layer_in_file"])
-        ogr2pg(db,
-               file,
-               in_layer=layer,
-               out_layer=source["alias"],
-               sql=source["query"])
+        db.ogr2pg(file, in_layer=layer, out_layer=source["alias"],
+                  sql=source["query"])
 
 
 # Check number of layers and only use layer name from sources.csv if > 1 layer, else use first
@@ -924,7 +801,7 @@ def overlay(in_file, in_layer, dump_file, out_file, out_format, aggregate_fields
 
     out_layer = new_layer_name[:50] + "_overlay"
 
-    ogr2pg(db, in_file, in_layer=in_layer, out_layer=new_layer_name)
+    db.ogr2pg(in_file, in_layer=in_layer, out_layer=new_layer_name)
     # pull distinct tiles iterable into a list
     tiles = [t for t in db["tiles"].distinct('map_tile')]
     # uncomment and adjust for debugging a specific tile
@@ -966,9 +843,9 @@ def dump(out_table, out_file, out_format, aggregate_fields):
                      """.format(t=out_table)
 
     info(sql_string)
-
-    pg2ogr(CONFIG["db_url"], sql_string, out_format, out_file, out_table,
-           geom_type="MULTIPOLYGON")
+    db = pgdb.connect(CONFIG["db_url"])
+    db.pg2ogr(sql_string, out_format, out_file, out_table,
+              geom_type="MULTIPOLYGON")
 
 
 @cli.command()

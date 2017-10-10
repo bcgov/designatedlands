@@ -3,7 +3,7 @@
 Combine conservation related spatial data from many sources to create a single 'Designated Lands' layer for British Columbia.
 
 ## Requirements
-- PostgreSQL 8.4+, PostGIS 2.0+ (tested on PostgreSQL 9.5, PostGIS 2.2.2)
+- PostgreSQL 8.4+, PostGIS 2.0+ (tested on PostgreSQL 9.6, PostGIS 2.3.2)
 - GDAL (with ogr2ogr available at the command line)
 - Python 2.7
 - git (optional, for less typing during installation)
