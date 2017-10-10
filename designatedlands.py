@@ -6,9 +6,11 @@
 #
 # http://www.apache.org/licenses/LICENSE-2.0
 #
-# Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on an "AS IS" BASIS,
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an "AS IS" BASIS,
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and limitations under the License.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 import os
 import re
@@ -20,7 +22,6 @@ import urllib2
 import zipfile
 import tarfile
 import csv
-import subprocess
 import hashlib
 import multiprocessing
 from functools import partial
@@ -614,15 +615,18 @@ def load(source_csv, email, dl_path, alias):
                   sql=source["query"])
 
 
-# Check number of layers and only use layer name from sources.csv if > 1 layer, else use first
 def get_layer_name(file, layer_name):
+    """
+    Check number of layers and only use layer name from sources.csv
+    if > 1 layer, else use first
+    """
     layers = fiona.listlayers(file)
     # replace the . with _ in WHSE objects
     if re.match("^WHSE_", layer_name):
         layer_name = re.sub("\\.", "_", layer_name)
 
     if len(layers) > 1:
-        if not layer_name in layers:
+        if layer_name not in layers:
             # try looking if there is a layer called layername_polygon
             if layer_name + '_polygon' in layers:
                 layer = layer_name + '_polygon'
@@ -779,7 +783,7 @@ def process(source_csv, out_table, resume, no_preprocess, n_processes, tiles, ra
 @click.argument('in_file', type=click.Path(exists=True))
 @click.option('--in_layer', '-l', help="Input layer name")
 @click.option('--dump_file', is_flag=True, default=False,
-              help="Should it dump to a file as specified by out_file and out_format?")
+              help="Dump to file (as specified by out_file and out_format)")
 @click.option('--out_file', '-o', default=CONFIG["out_file"],
               help=HELP["out_file"])
 @click.option('--out_format', '-of', default=CONFIG["out_format"],
@@ -797,7 +801,7 @@ def overlay(in_file, in_layer, dump_file, out_file, out_format, aggregate_fields
     if not in_layer:
         in_layer = fiona.listlayers(in_file)[0]
     if not new_layer_name:
-        new_layer_name = in_layer[:63] # Maximum table name length is 63
+        new_layer_name = in_layer[:63]  # Maximum table name length is 63
 
     out_layer = new_layer_name[:50] + "_overlay"
 
