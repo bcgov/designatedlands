@@ -140,29 +140,29 @@ def download_bcgw(url, dl_path, email=None, gdb=None):
 
 
 def download_non_bcgw(url, download_cache=None):
-    """Download a file to location specified
+    """
+    Download a file to location specified
     Modified from https://github.com/OpenBounds/Processing/blob/master/utils.py
     """
-    info('Downloading', url)
 
     parsed_url = urlparse(url)
 
     urlfile = parsed_url.path.split('/')[-1]
     _, extension = os.path.split(urlfile)
 
-    fp = tempfile.NamedTemporaryFile('wb', dir=download_cache,
-                                     suffix=extension, delete=False)
-    if not download_cache:
-        download_cache = tempfile.gettempdir()
+    fp = tempfile.NamedTemporaryFile('wb', suffix=extension, delete=False)
 
-    cache_path = os.path.join(download_cache,
-                              hashlib.sha224(url).hexdigest())
-    if os.path.exists(cache_path):
-        info("Returning %s from local cache" % url)
-        fp.close()
-        shutil.copy(cache_path, fp.name)
-        return fp
+    cache_path = None
+    if download_cache is not None:
+        cache_path = os.path.join(download_cache,
+            hashlib.sha224(url).hexdigest())
+        if os.path.exists(cache_path):
+            info("Returning %s from local cache at %s" % (url, cache_path))
+            fp.close()
+            shutil.copy(cache_path, fp.name)
+            return fp
 
+    info('Downloading', url)
     if parsed_url.scheme == "http" or parsed_url.scheme == "https":
         res = requests.get(url, stream=True, verify=False)
 
@@ -546,6 +546,35 @@ def postprocess(db, sources, clean_table, out_table, n_processes, tiles=None):
               tiles)
 
 
+def get_layer_name(file, layer_name):
+    """
+    Check number of layers and only use layer name from sources.csv
+    if > 1 layer, else use first
+    """
+    layers = fiona.listlayers(file)
+    # replace the . with _ in WHSE objects
+    if re.match("^WHSE_", layer_name):
+        layer_name = re.sub("\\.", "_", layer_name)
+
+    if len(layers) > 1:
+        if layer_name not in layers:
+            # try looking if there is a layer called layername_polygon
+            if layer_name + '_polygon' in layers:
+                layer = layer_name + '_polygon'
+            else:
+                raise Exception("cannot find layer name")
+        else:
+            layer = layer_name
+    else:
+        layer = layers[0]
+    return layer
+
+
+# --------------
+# CLI
+# --------------
+
+
 @click.group()
 def cli():
     pass
@@ -580,7 +609,6 @@ def load(source_csv, email, dl_path, alias):
 
     # process sources where automated downloads are avaiable
     for source in [s for s in sources if s["manual_download"] != 'T']:
-        info("Downloading %s" % source["alias"])
 
         # handle BCGW downloads
         if urlparse(source["url"]).hostname == 'catalogue.data.gov.bc.ca':
@@ -593,7 +621,10 @@ def load(source_csv, email, dl_path, alias):
                 file = os.path.join(dl_path, source["alias"],
                                     source['file_in_url'])
             else:
-                fp = download_non_bcgw(source['url'])
+                download_cache = os.path.join(tempfile.gettempdir(), "dl_cache")
+                if not os.path.exists(download_cache):
+                    os.makedirs(download_cache)
+                fp = download_non_bcgw(source['url'], download_cache)
                 file = extract(fp,
                                dl_path,
                                source['alias'],
@@ -613,30 +644,6 @@ def load(source_csv, email, dl_path, alias):
         layer = get_layer_name(file, source["layer_in_file"])
         db.ogr2pg(file, in_layer=layer, out_layer=source["alias"],
                   sql=source["query"])
-
-
-def get_layer_name(file, layer_name):
-    """
-    Check number of layers and only use layer name from sources.csv
-    if > 1 layer, else use first
-    """
-    layers = fiona.listlayers(file)
-    # replace the . with _ in WHSE objects
-    if re.match("^WHSE_", layer_name):
-        layer_name = re.sub("\\.", "_", layer_name)
-
-    if len(layers) > 1:
-        if layer_name not in layers:
-            # try looking if there is a layer called layername_polygon
-            if layer_name + '_polygon' in layers:
-                layer = layer_name + '_polygon'
-            else:
-                raise Exception("cannot find layer name")
-        else:
-            layer = layer_name
-    else:
-        layer = layers[0]
-    return layer
 
 
 @cli.command()
