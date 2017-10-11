@@ -32,7 +32,7 @@ Combine conservation related spatial data from many sources to create a single '
         $ cd designatedlands
         $ pip install -r requirements.txt
     
-    If you don't have git, download and extract each of the non-pypi repositories manually (designatedlands, pgdb and bcdata), then install them and Fiona:
+    If you don't have git, download and extract each of the non-pypi repositories manually (pgxnclinet, designatedlands, pgdb and bcdata), then install them and Fiona:
 
         $ cd pgdb-master
         $ pip install .

@@ -24,6 +24,7 @@ import tarfile
 import csv
 import hashlib
 import multiprocessing
+import subprocess
 from functools import partial
 from xml.sax.saxutils import escape
 
@@ -126,17 +127,15 @@ def download_bcgw(url, dl_path, email=None, gdb=None):
         email = os.environ["BCDATA_EMAIL"]
     if not email:
         raise Exception("An email address is required to download BCGW data")
-    # check that the extracted download isn't already in tmp
-    if gdb and os.path.exists(os.path.join(dl_path, gdb)):
-        return os.path.join(dl_path, gdb)
-    else:
-        download = bcdata.download(url, email)
-        if not download:
-            raise Exception("Failed to create DWDS order")
-        # move the downloaded .gdb to specified dl_path
-        out_gdb = os.path.split(download)[1]
-        shutil.copytree(download, os.path.join(dl_path, out_gdb))
-        return os.path.join(dl_path, out_gdb)
+    download = bcdata.download(url, email)
+    if not download:
+        raise Exception("Failed to create DWDS order")
+    # move the download to specified dl_path, deleting if it already exists
+    out_gdb = os.path.split(download)[1]
+    if os.path.exists(os.path.join(dl_path, out_gdb)):
+        shutil.rmtree(os.path.join(dl_path, out_gdb))
+    shutil.copytree(download, os.path.join(dl_path, out_gdb))
+    return os.path.join(dl_path, out_gdb)
 
 
 def download_non_bcgw(url, download_cache=None):
@@ -324,41 +323,40 @@ def clip(db, in_table, clip_table):
     db[in_table].create_index(["id"])
 
 
-def preprocess(db, source_csv, alias=None, rem_overlaps=True):
+def preprocess(db, source_csv, alias=None):
     """
     Before running the main processing job:
       - create comprehensive tiling layer
+      - tile and validate each source
       - preprocess sources as specified in source_csv
     """
     sources = read_csv(source_csv)
-
-    if rem_overlaps:
-        clean_query = "clean_union"
-        clean_table_nm = "clean_table"
-    else:
-        clean_query = "clean_union_overlaps"
-        clean_table_nm = "clean_table_overlaps"
 
     if alias:
         sources = [s for s in sources if s['alias'] == alias]
 
     # create tile layer
-    db.execute(db.queries["create_tiles"])
+    if 'public.tiles' not in db.tables:
+        db.execute(db.queries["create_tiles"])
 
     # for all designated lands sources:
-    # - union/merge polygons
     # - create new table name prefixed with hierarchy
-    # - retain just one column (designation), value equivalent to table name
+    # - create and populate standard columns:
+    #     - designation (equivalent to source's alias in sources.csv)
+    #     - designation_id (unique id of source feature)
+    #     - designation_name (name of source feature)
     clean_sources = [s for s in sources
                      if s["exclude"] != 'T' and s['hierarchy'] != 0]
     for source in clean_sources:
-        info("Tiling - dissolving - validating: %s" % source["alias"])
+        clean_query = "clean_union"
+        clean_table_nm = "clean_table"
+
+        info("Tiling and validating: %s" % source["alias"])
         db[source[clean_table_nm]].drop()
         lookup = {"out_table": source[clean_table_nm],
-                  "src_table": source["src_table"]}
-        if not rem_overlaps:
-            lookup.update({"designation_id_col": source["designation_id_col"],
-                          "designation_name_col": source["designation_name_col"]})
+                  "src_table": source["src_table"],
+                  "designation_id_col": source["designation_id_col"],
+                  "designation_name_col": source["designation_name_col"]}
         sql = db.build_query(db.queries[clean_query], lookup)
         db.execute(sql)
 
@@ -587,6 +585,11 @@ def create_db():
     pgdb.create_db(CONFIG["db_url"])
     db = pgdb.connect(CONFIG["db_url"])
     db.execute("CREATE EXTENSION postgis")
+    # add lostgis functions: ST_Safe_Intersection, ST_Safe_Difference
+    # https://github.com/gojuno/lostgis
+    # this should be done in some other script
+    #subprocess.call("pgxn install lostgis", shell=True)
+    db.execute("CREATE EXTENSION lostgis")
 
 
 @cli.command()
@@ -596,7 +599,8 @@ def create_db():
 @click.option('--dl_path', default=CONFIG["source_data"],
               type=click.Path(exists=True), help=HELP['dl_path'])
 @click.option('--alias', '-a', help=HELP['alias'])
-def load(source_csv, email, dl_path, alias):
+@click.option('--force_download', default=False, help='Force fresh download')
+def load(source_csv, email, dl_path, alias, force_download):
     """Download data, load to postgres
     """
     db = pgdb.connect(CONFIG["db_url"])
@@ -608,12 +612,16 @@ def load(source_csv, email, dl_path, alias):
     sources = [s for s in sources if s["exclude"] != 'T']
 
     # process sources where automated downloads are avaiable
+    load_commands = []
     for source in [s for s in sources if s["manual_download"] != 'T']:
 
         # handle BCGW downloads
         if urlparse(source["url"]).hostname == 'catalogue.data.gov.bc.ca':
             gdb = source["layer_in_file"].split(".")[1].strip() + ".gdb"
-            file = download_bcgw(source["url"], dl_path, email=email, gdb=gdb)
+            file = os.path.join(dl_path, gdb)
+            # download only if layer is not already there or if forced
+            if not os.path.exists(file) and not force_download:
+                download_bcgw(source["url"], dl_path, email=email, gdb=gdb)
 
         # handle all other downloads
         else:
@@ -625,16 +633,15 @@ def load(source_csv, email, dl_path, alias):
                 if not os.path.exists(download_cache):
                     os.makedirs(download_cache)
                 fp = download_non_bcgw(source['url'], download_cache)
+                # * here we assume that all non-bcgw downloads are zip files *
                 file = extract(fp,
                                dl_path,
                                source['alias'],
                                source['file_in_url'])
 
         layer = get_layer_name(file, source["layer_in_file"])
-
-        # load downloaded data to postgres
-        db.ogr2pg(file, in_layer=layer, out_layer=source["alias"],
-                  sql=source["query"])
+        load_commands.append(db.ogr2pg(file, in_layer=layer,
+            out_layer=source["alias"], sql=source["query"], cmd_only=True))
 
     # process manually downloaded sources
     for source in [s for s in sources if s["manual_download"] == 'T']:
@@ -642,8 +649,14 @@ def load(source_csv, email, dl_path, alias):
         if not os.path.exists(file):
             raise Exception(file + " does not exist, download it manually")
         layer = get_layer_name(file, source["layer_in_file"])
-        db.ogr2pg(file, in_layer=layer, out_layer=source["alias"],
-                  sql=source["query"])
+        load_commands.append(db.ogr2pg(file, in_layer=layer,
+            out_layer=source["alias"], sql=source["query"], cmd_only=True))
+
+    # run all ogr commands in parallel
+    info('loading data')
+    # https://stackoverflow.com/questions/14533458/python-threading-multiple-bash-subprocesses
+    processes = [subprocess.Popen(cmd, shell=True) for cmd in load_commands]
+    for p in processes: p.wait()
 
 
 @cli.command()
@@ -653,13 +666,13 @@ def load(source_csv, email, dl_path, alias):
               help=HELP["out_table"])
 @click.option('--resume', '-r',
               help='hierarchy number at which to resume processing')
-@click.option('--no_preprocess', is_flag=True,
-              help="Do not preprocess input data")
+@click.option('--force_preprocess', is_flag=True,
+              help="Force re-preprocessing of input data")
 @click.option('--n_processes', '-p', default=CONFIG["n_processes"],
               help="Number of parallel processing threads to utilize")
 @click.option('--tiles', '-t', help="Comma separated list of tiles to process")
 @click.option('--raw', is_flag=True, default=False, help="Don't remove overlaps in source polygons")
-def process(source_csv, out_table, resume, no_preprocess, n_processes, tiles, raw):
+def process(source_csv, out_table, resume, force_preprocess, n_processes, tiles, raw):
     """Create output designated lands table
     """
 
@@ -680,9 +693,7 @@ def process(source_csv, out_table, resume, no_preprocess, n_processes, tiles, ra
     db = pgdb.connect(CONFIG["db_url"], schema="public")
     db.execute(db.queries["safe_diff"])
     # run any required pre-processing
-    # (no_preprocess flag is for development)
-    if not no_preprocess:
-        preprocess(db, source_csv, rem_overlaps=not raw)
+    preprocess(db, source_csv, force_preprocess, rem_overlaps=not raw)
 
     # create target table if not resuming from a bailed process
     if not resume:
