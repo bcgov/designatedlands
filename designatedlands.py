@@ -83,21 +83,23 @@ def get_files(path):
 
 def read_csv(path):
     """
-    Returns list of dicts from file, sorted by 'hierarchy' column
-    https://stackoverflow.com/questions/72899/
+    Load input csv file and return a list of dicts.
+    - List is sorted by 'hierarchy' column
+    - keys/columns added:
+        + 'src_table'   - equivalent to source 'alias' column
+        + 'clean_table' - 'c'+hierarchy+'_'+src_table
     """
     source_list = [source for source in csv.DictReader(open(path, 'rb'))]
-    # convert hierarchy value to integer
     for source in source_list:
+        # convert hierarchy value to integer
         source.update((k, int(v)) for k, v in source.iteritems()
                       if k == "hierarchy" and v != '')
         # for convenience, add the layer names to the dict
         hierarchy = str(source["hierarchy"]).zfill(2)
         clean_table = "c"+hierarchy+"_"+source["alias"]
-        clean_table_overlaps = "c"+hierarchy+"_ol_"+source["alias"]
         source.update({"src_table": source["alias"],
-                       "clean_table": clean_table,
-                       "clean_table_overlaps": clean_table_overlaps})
+                       "clean_table": clean_table})
+    # return sorted list https://stackoverflow.com/questions/72899/
     return sorted(source_list, key=lambda k: k['hierarchy'])
 
 
@@ -289,14 +291,12 @@ def parallel_tiled(sql, tile, n_subs=2):
     db.execute(sql, (tile+"%",) * n_subs)
 
 
-def clip(db, in_table, clip_table):
+def clip(db, in_table, clip_table, out_table):
     """
-    Clip geometry of in_table by clip_table, overwriting in_table with the
-    output.
+    Clip geometry of in_table by clip_table, writing output to out_table
     """
     columns = ["a."+c for c in db[in_table].columns if c != 'geom']
-    temp_table = "temp_clip"
-    db[temp_table].drop()
+    db[out_table].drop()
     sql = """CREATE UNLOGGED TABLE {temp} AS
              SELECT
                {columns},
@@ -307,37 +307,30 @@ def clip(db, in_table, clip_table):
              FROM {in_table} AS a
              INNER JOIN {clip_table} AS b
              ON ST_Intersects(a.geom, b.geom)
-          """.format(temp=temp_table,
+          """.format(temp=out_table,
                      columns=", ".join(columns),
                      in_table=in_table,
                      clip_table=clip_table)
-    info('Clipping %s by %s' % (in_table, clip_table))
+    info('Clipping %s by %s to create %s' % (in_table, clip_table, out_table))
     db.execute(sql)
-    # drop the source table
-    db[in_table].drop()
-    # copy the temp output back to the source
-    db.execute("""CREATE TABLE {t} AS
-                  SELECT * FROM {temp}""".format(t=in_table, temp=temp_table))
-    # re-create indexes
-    db[in_table].create_index_geom()
-    db[in_table].create_index(["id"])
 
 
-def preprocess(db, source_csv, alias=None):
+def preprocess(db, source_csv, alias=None, force_preprocess=False):
     """
     Before running the main processing job:
       - create comprehensive tiling layer
       - tile and validate each source
-      - preprocess sources as specified in source_csv
+      - preprocess (eg clip) sources as specified in source_csv
     """
     sources = read_csv(source_csv)
 
+    # create tile layer
+    if 'tiles' not in db.tables:
+        db.execute(db.queries["create_tiles"])
+
+    # process only the source layer specified
     if alias:
         sources = [s for s in sources if s['alias'] == alias]
-
-    # create tile layer
-    if 'public.tiles' not in db.tables:
-        db.execute(db.queries["create_tiles"])
 
     # for all designated lands sources:
     # - create new table name prefixed with hierarchy
@@ -348,30 +341,39 @@ def preprocess(db, source_csv, alias=None):
     clean_sources = [s for s in sources
                      if s["exclude"] != 'T' and s['hierarchy'] != 0]
     for source in clean_sources:
-        clean_query = "clean_union"
-        clean_table_nm = "clean_table"
+        if source["clean_table"] not in db.tables or force_preprocess:
+            info("Tiling and validating: %s" % source["alias"])
+            db[source["clean_table"]].drop()
+            lookup = {"out_table": source["clean_table"],
+                      "src_table": source["src_table"],
+                      "designation_id_col": source["designation_id_col"],
+                      "designation_name_col": source["designation_name_col"]}
+            sql = db.build_query(db.queries["clean_and_tile"], lookup)
+            db.execute(sql)
 
-        info("Tiling and validating: %s" % source["alias"])
-        db[source[clean_table_nm]].drop()
-        lookup = {"out_table": source[clean_table_nm],
-                  "src_table": source["src_table"],
-                  "designation_id_col": source["designation_id_col"],
-                  "designation_name_col": source["designation_name_col"]}
-        sql = db.build_query(db.queries[clean_query], lookup)
-        db.execute(sql)
-
-    # apply pre-processing operation specified in sources.csv
+    # apply pre-processing operation specified in sources.csv (eg clip)
     preprocess_sources = [s for s in sources
                           if s["preprocess_operation"] != '']
     for source in preprocess_sources:
-        # what is the cleaned name of the pre-process layer?
-        preprocess_lyr = [s for s in sources
-                          if s["alias"] == source["preprocess_layer_alias"]][0]
-        function = source["preprocess_operation"]
-        # call the specified preprocess function
-        globals()[function](db,
-                            source[clean_table_nm],
-                            preprocess_lyr["alias"])
+        if source["clean_table"]+"_preprc" not in db.tables or force_preprocess:
+            # find name of the pre-process layer to be used
+            preprocess_lyr = [s for s in sources
+                              if s["alias"] == source["preprocess_layer_alias"]][0]
+            function = source["preprocess_operation"]
+            # call the specified preprocess function
+            globals()[function](db,
+                                source["clean_table"],
+                                preprocess_lyr["alias"],
+                                source["clean_table"]+"_preprc")
+            # overwrite the cleaned table with the preprocessed table, but
+            # retain the _preprc table as a flag that the job is done
+            db[source["clean_table"]].drop()
+            db.execute("""CREATE TABLE {t} AS
+                          SELECT * FROM {temp}""".format(t=source["clean_table"],
+                                                         temp=source["clean_table"]+"_preprc"))
+            # re-create indexes
+            db[source["clean_table"]].create_index_geom()
+            db[source["clean_table"]].create_index(["id"])
 
 
 def create_bc_boundary(db, n_processes):
@@ -384,11 +386,9 @@ def create_bc_boundary(db, n_processes):
     - marine_ecosections (BC Marine Ecosections)
     """
     # create land/marine definition table
-    target_table = "bc_boundary"
-    db[target_table].drop()
-    db.execute(db.build_query(db.queries['create_target'],
-                              {"table": target_table}))
-    # Prep boundary sources and insert into out layer
+    db.execute(db.queries['create_bc_boundary'])
+
+    # Prep boundary sources
     # First, combine ABMS boundary and marine ecosections
     db["bc_boundary_marine"].drop()
     db.execute("""CREATE TABLE bc_boundary_marine AS
@@ -653,7 +653,7 @@ def load(source_csv, email, dl_path, alias, force_download):
             out_layer=source["alias"], sql=source["query"], cmd_only=True))
 
     # run all ogr commands in parallel
-    info('loading data')
+    info('loading data to postgres...')
     # https://stackoverflow.com/questions/14533458/python-threading-multiple-bash-subprocesses
     processes = [subprocess.Popen(cmd, shell=True) for cmd in load_commands]
     for p in processes: p.wait()
@@ -666,34 +666,30 @@ def load(source_csv, email, dl_path, alias, force_download):
               help=HELP["out_table"])
 @click.option('--resume', '-r',
               help='hierarchy number at which to resume processing')
-@click.option('--force_preprocess', is_flag=True,
+@click.option('--force_preprocess', is_flag=True, default=False,
               help="Force re-preprocessing of input data")
 @click.option('--n_processes', '-p', default=CONFIG["n_processes"],
               help="Number of parallel processing threads to utilize")
-@click.option('--tiles', '-t', help="Comma separated list of tiles to process")
-@click.option('--raw', is_flag=True, default=False, help="Don't remove overlaps in source polygons")
-def process(source_csv, out_table, resume, force_preprocess, n_processes, tiles, raw):
+@click.option('--tiles', '-t', default=None,
+              help="Comma separated list of tiles to process")
+def process(source_csv, out_table, resume, force_preprocess, n_processes,
+            tiles):
     """Create output designated lands table
     """
+    # convert list of tiles to set
+    if tiles:
+        tiles = set(tiles.split(","))
+
+    db = pgdb.connect(CONFIG["db_url"], schema="public")
+
+    #db.execute(db.queries["safe_diff"])
+    # run any required pre-processing
+    preprocess(db, source_csv, force_preprocess)
 
     clean_table_nm = 'clean_table'
     create_target_qry = 'create_target'
     populate_target_qry = 'populate_target'
 
-    if raw:
-        out_table = out_table + '_overlaps'
-        create_target_qry = create_target_qry + '_overlaps'
-        clean_table_nm = clean_table_nm + '_overlaps'
-        populate_target_qry = populate_target_qry + '_overlaps'
-
-    if tiles:
-        all_tiles = set(tiles.split(","))
-    else:
-        all_tiles = None
-    db = pgdb.connect(CONFIG["db_url"], schema="public")
-    db.execute(db.queries["safe_diff"])
-    # run any required pre-processing
-    preprocess(db, source_csv, force_preprocess, rem_overlaps=not raw)
 
     # create target table if not resuming from a bailed process
     if not resume:
@@ -715,15 +711,15 @@ def process(source_csv, out_table, resume, force_preprocess, n_processes, tiles,
 
     # Using the tiles layer, fill in gaps so all BC is included in output
     # add 'id' to tiles table to match schema of other sources
-    if 'id' not in db['tiles'].columns:
+    if 'id' not in db["tiles"].columns:
         db.execute("ALTER TABLE tiles ADD COLUMN id integer")
         db.execute("UPDATE tiles SET id = tile_id")
-    if 'designation' not in db['tiles'].columns:
+    if 'designation' not in db["tiles"].columns:
         db.execute("ALTER TABLE tiles ADD COLUMN designation text")
     if raw:
-        if 'designation_id' not in db['tiles'].columns:
+        if 'designation_id' not in db["tiles"].columns:
             db.execute("ALTER TABLE tiles ADD COLUMN designation_id text")
-        if 'designation_name' not in db['tiles'].columns:
+        if 'designation_name' not in db["tiles"].columns:
             db.execute("ALTER TABLE tiles ADD COLUMN designation_name text")
     else:
         undesignated = {"clean_table": "tiles",
