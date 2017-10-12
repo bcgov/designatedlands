@@ -10,10 +10,13 @@
 -- WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 --
 -- See the License for the specific language governing permissions and limitations under the License.
+-- ----------------------------------------------------------------------------------------------------
 
 -- create empty prelim output table
 
-CREATE TABLE IF NOT EXISTS bc_boundary (
+DROP TABLE IF EXISTS bc_boundary;
+
+CREATE TABLE bc_boundary (
      bc_boundary_id serial PRIMARY KEY,
      designation text,
      map_tile text,

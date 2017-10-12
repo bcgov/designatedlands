@@ -20,19 +20,15 @@
 CREATE UNLOGGED TABLE IF NOT EXISTS $out_table (
      id serial PRIMARY KEY,
      designation text,
-     designation_id text,
-     designation_name text,
      map_tile text,
      geom geometry
 );
 
 -- insert cleaned data
-INSERT INTO $out_table (designation, designation_id, designation_name, map_tile, geom)
-  SELECT designation, designation_id, designation_name, map_tile, geom
+INSERT INTO $out_table (designation, map_tile, geom)
+  SELECT designation, map_tile, geom
   FROM (SELECT
           '$out_table'::TEXT as designation,
-          a.$designation_id_col as designation_id,
-          a.$designation_name_col as designation_name,
           b.map_tile,
 -- make sure the output is valid
           st_makevalid(
@@ -51,7 +47,7 @@ INSERT INTO $out_table (designation, designation_id, designation_name, map_tile,
 -- intersect with tiles
                       CASE
                         WHEN ST_CoveredBy(a.geom, b.geom) THEN a.geom
-                        ELSE ST_Intersection(ST_MakeValid(a.geom), b.geom)
+                        ELSE ST_Safe_Intersection(a.geom, b.geom)
                       END
                     , 3)
                   )
@@ -61,7 +57,7 @@ INSERT INTO $out_table (designation, designation_id, designation_name, map_tile,
             )).geom) as geom
         FROM $src_table a
         INNER JOIN tiles b ON ST_Intersects(a.geom, b.geom)
-        GROUP BY designation, designation_id, designation_name, map_tile) as foo;
+        GROUP BY designation, map_tile) as foo;
 
 -- index for speed
 CREATE INDEX $out_table_gix ON $out_table USING GIST (geom);
