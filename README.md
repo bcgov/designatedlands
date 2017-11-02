@@ -107,18 +107,26 @@ Options:
   --help                 Show this message and exit.
 ```
 
-### Examples
-Presuming all manual downloads specified are complete, process all data, then dump the results to shapefile:
+### Usage
+
+A complete run of the tool was completed on Sept 21, 2017, and the results are reported on [Environmental Reporting BC](http://www.env.gov.bc.ca/soe/indicators/land/land-designations.html). 
+
+To preserve the source data from that analysis, and to avoid having to download all of the different layers from the BCGW, 
+the source BCGW data are provided in a zip file attached to the [latest release](https://github.com/smnorris/conservationlands/releases). Download that file and extract it to the `source_data` folder.
+
+Download the other data sources specified as **manual downloads** in `sources.csv`.
+
+Then using the designatedlands tool, load and process all data, then dump the results to shapefile:
 ```
 $ python designatedlands.py create_db
 $ python designatedlands.py load --email myemail@email.bc.ca
 $ python designatedlands.py process
 $ python designatedlands.py dump
 ```
-Or, run all the above steps in a single command:
-<!-- ```
+<!-- Or, run all the above steps in a single command:
+```
 $ python designatedlands.py run_all
-``` -->
+```
 
 Most commands allow the user to specify inputs other than the default. For example, to load a single layer with **alias**=`park_provincial` as defined in a file `newparks_sources.csv` to the folder `newparks_download`, and copy to postgres:
 ```
@@ -128,6 +136,7 @@ $ python designatedlands.py load \
   --email myemail@email.bc.ca \
   --dl_path newparks_download
 ```
+-->
 
 #### Overlay
 In addition to creating the output conservation lands layer, this tool also provides a mechanism to overlay the results with administration or ecological units of your choice:
