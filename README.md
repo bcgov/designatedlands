@@ -25,7 +25,7 @@ Combine conservation related spatial data from many sources to create a single '
         $ source designatedlands_venv/bin/activate # activate the env, posix
         $ designatedlands_venv\Scripts\activate    # activate the env, windows
         
-5. Clone the repository and install dependencies:
+5. Clone the repository and install Python dependencies:
  
         $ git clone https://github.com/bcgov/designatedlands.git
         $ cd designatedlands
@@ -33,7 +33,8 @@ Combine conservation related spatial data from many sources to create a single '
     
     Note that this procedure for installing Python dependencies will likely not work for Windows users. On Windows, Fiona installation requires manually downloading the pre-built wheel. [See the Fiona manual for details and a link to the wheel](https://github.com/Toblerity/Fiona#windows). Once Fiona is manually installed, `pip install -r requirements.txt` should work to install the rest of the libraries. Some further PATH configurations will be required if you are installing Fiona to a Python installed by ArcGIS (not recommended).
 
-6. Using the pgxn client (installed above), install the `lostgis` extension:
+6. Using the `pgxn` client (installed via `requirements.txt`, above), install the `lostgis` extension:
+
         $ pgxn install lostgis
 
 ## Configuration
