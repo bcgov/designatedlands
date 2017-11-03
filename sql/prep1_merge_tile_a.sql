@@ -13,14 +13,12 @@
 
 -- ----------------------------------------------------------------------------------------------------
 
--- Clean and tile data in src_table
---   - validate geometry
---   - cut by tiles layer
---   - retain source id and source name (where available)
+--   - tile/merge/repair data in src_table
+--   - where available, retain source id and source name
 
 
 -- create empty table with new auto-indexed id column
-CREATE UNLOGGED TABLE IF NOT EXISTS $out_table (
+CREATE TABLE IF NOT EXISTS $out_table (
      id serial PRIMARY KEY,
      designation text,
      designation_id text,
@@ -33,39 +31,34 @@ CREATE UNLOGGED TABLE IF NOT EXISTS $out_table (
 INSERT INTO $out_table (designation, designation_id, designation_name, map_tile, geom)
   SELECT designation, designation_id, designation_name, map_tile, geom
   FROM (SELECT
-          '$out_table'::TEXT as designation,
-          a.$designation_id_col as designation_id,
-          a.$designation_name_col as designation_name,
+          '$out_table'::TEXT AS designation,
+          a.$designation_id_col AS designation_id,
+          a.$designation_name_col AS designation_name,
           b.map_tile,
--- make sure the output is valid
-          st_makevalid(
--- dump
-            (st_dump(
- -- union to remove overlapping polys within the source
- -- (although as we are including id and name, these will be very few)
+          -- make sure the output is valid
+          ST_Safe_Repair(
+          -- dump
+            (ST_Dump(
+          -- union to remove overlapping polys within the source
+          -- (this is common, even though we are grouping by designation name and
+          -- id - for example, there are three records for Wells Gray Park
+          -- currently in the parks_provincial source 2017-10-20)
             ST_Union(
--- make buffer result multipart
               ST_Multi(
--- buffer the features by 0 to help with validity
-                ST_Buffer(
--- first validity check
-                  ST_MakeValid(
--- include only polygons in cases of geometrycollections
-                    ST_CollectionExtract(
--- intersect with tiles
-                      CASE
-                        WHEN ST_CoveredBy(a.geom, b.geom) THEN a.geom
-                        ELSE ST_Safe_Intersection(a.geom, b.geom)
-                      END
-                    , 3)
-                  )
-                , 0)
+          -- include only polygons in cases of geometrycollections
+                ST_CollectionExtract(
+          -- intersect with tiles
+                  CASE
+                    WHEN ST_CoveredBy(a.geom, b.geom) THEN a.geom
+                    ELSE ST_Safe_Intersection(a.geom, b.geom)
+                  END
+                , 3)
                 )
               )
-            )).geom) as geom
+              )).geom) as geom
         FROM $src_table a
         INNER JOIN tiles b ON ST_Intersects(a.geom, b.geom)
-        GROUP BY designation, designation_id, designation_name, map_tile) as foo;
+        GROUP BY designation, designation_id, designation_name, map_tile) AS foo;
 
 -- index for speed
 CREATE INDEX $out_table_gix ON $out_table USING GIST (geom);

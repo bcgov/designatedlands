@@ -10,6 +10,7 @@
 -- WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 --
 -- See the License for the specific language governing permissions and limitations under the License.
+
 -- ----------------------------------------------------------------------------------------------------
 
 INSERT INTO $out_table (designation, designation_id, designation_name, map_tile, geom)
@@ -19,5 +20,5 @@ SELECT
    designation_id,
    designation_name,
    map_tile,
-   ST_MakeValid(geom) as geom
+   ST_Safe_Repair(geom) as geom
  FROM $in_table

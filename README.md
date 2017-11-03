@@ -3,13 +3,12 @@
 Combine conservation related spatial data from many sources to create a single 'Designated Lands' layer for British Columbia.
 
 ## Requirements
-- PostgreSQL 8.4+, PostGIS 2.0+ (tested on PostgreSQL 9.6, PostGIS 2.3.2)
-- GDAL (with ogr2ogr available at the command line)
+- PostgreSQL 8.4+, PostGIS 2.0+ (tested on PostgreSQL 9.6.5, PostGIS 2.4)
+- GDAL (with `ogr2ogr` available at the command line)
 - Python 2.7
-- git (optional, for less typing during installation)
 
 ## Installation
-1. Install all requirements noted above
+1. Install the requirements noted above
 
 2. Ensure Python is available at the command prompt. If the path to your Python executable is not already included in your PATH environment variable you will probably have to add it, using a command something like this:  
 
@@ -20,28 +19,22 @@ Combine conservation related spatial data from many sources to create a single '
 4. (Optional) Consider installing dependencies to a [virtual environment](https://virtualenv.pypa.io/en/stable/) rather than to the system Python:
 
         
-        $ pip install virtualenv                     # if not already installed
+        $ pip install virtualenv                   # if not already installed
         $ mkdir designatedlands_venv
         $ virtualenv designatedlands_venv
         $ source designatedlands_venv/bin/activate # activate the env, posix
         $ designatedlands_venv\Scripts\activate    # activate the env, windows
         
-5. If you have git, download the repository and install dependencies with:
+5. Clone the repository and install dependencies:
  
-        $ git clone https://github.com/smnorris/designatedlands.git
+        $ git clone https://github.com/bcgov/designatedlands.git
         $ cd designatedlands
         $ pip install -r requirements.txt
     
-    If you don't have git, download and extract each of the non-pypi repositories manually (pgxnclinet, designatedlands, pgdb and bcdata), then install them and Fiona:
+    Note that this procedure for installing Python dependencies will likely not work for Windows users. On Windows, Fiona installation requires manually downloading the pre-built wheel. [See the Fiona manual for details and a link to the wheel](https://github.com/Toblerity/Fiona#windows). Once Fiona is manually installed, `pip install -r requirements.txt` should work to install the rest of the libraries. Some further PATH configurations will be required if you are installing Fiona to a Python installed by ArcGIS (not recommended).
 
-        $ cd pgdb-master
-        $ pip install .
-        $ cd ../bcdata-master
-        $ pip install .
-        $ pip install Fiona     # or via downloaded wheel on Windows, see below
-        $ cd ../designatedlands-master
-
-5. Note that on Windows, to install the Fiona dependency you will likely have to manually download the pre-built wheel. [See the Fiona manual for details and a link to the wheel](https://github.com/Toblerity/Fiona#windows). Some further PATH configurations will be required if you are installing Fiona to a Python installed by ArcGIS.
+6. Using the pgxn client (installed above), install the `lostgis` extension:
+        $ pgxn install lostgis
 
 ## Configuration
 To modify the default database/files/folders used to hold the data, edit the `CONFIG` dictionary at the top of `designatedlands.py`  

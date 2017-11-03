@@ -10,13 +10,14 @@
 -- WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 --
 -- See the License for the specific language governing permissions and limitations under the License.
+
 -- ----------------------------------------------------------------------------------------------------
 
 -- Create empty prelim output tables
 
 -- overlaps table (simply dump all sources into this one)
-DROP TABLE IF EXISTS $table_overlaps_prelim;
-CREATE TABLE $table_overlaps_prelim (
+DROP TABLE IF EXISTS $table_overlaps;
+CREATE TABLE $table_overlaps (
      $table_overlaps_prelim_id serial PRIMARY KEY,
      designation text,
      designation_id text,
@@ -26,11 +27,11 @@ CREATE TABLE $table_overlaps_prelim (
 );
 
 -- index for speed
-CREATE INDEX IF NOT EXISTS $table_overlaps_prelim_gix ON $table_overlaps_prelim USING GIST (geom);
-CREATE INDEX IF NOT EXISTS $table_overlaps_prelim_catix ON $table_overlaps_prelim (designation);
-CREATE INDEX IF NOT EXISTS $table_overlaps_prelim_desidtix ON $table_overlaps_prelim (designation_id);
-CREATE INDEX IF NOT EXISTS $table_overlaps_prelim_desnmtix ON $table_overlaps_prelim (designation_name);
-CREATE INDEX IF NOT EXISTS $table_overlaps_prelim_tileix ON $table_overlaps_prelim (map_tile text_pattern_ops);
+CREATE INDEX IF NOT EXISTS $table_overlaps_gix ON $table_overlaps USING GIST (geom);
+CREATE INDEX IF NOT EXISTS $table_overlaps_catix ON $table_overlaps (designation);
+CREATE INDEX IF NOT EXISTS $table_overlaps_desidtix ON $table_overlaps (designation_id);
+CREATE INDEX IF NOT EXISTS $table_overlaps_desnmtix ON $table_overlaps (designation_name);
+CREATE INDEX IF NOT EXISTS $table_overlaps_tileix ON $table_overlaps (map_tile text_pattern_ops);
 
 -- create no overlaps table (overlapping sources are removed based on hierarchy)
 DROP TABLE IF EXISTS $table_prelim;

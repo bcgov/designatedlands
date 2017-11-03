@@ -86,8 +86,9 @@ def read_csv(path):
     Load input csv file and return a list of dicts.
     - List is sorted by 'hierarchy' column
     - keys/columns added:
-        + 'src_table'   - equivalent to source 'alias' column
-        + 'clean_table' - 'c'+hierarchy+'_'+src_table
+        + 'input_table'   - 'a'+hierarchy+'_'+src_table
+        + 'tiled_table'   - 'b'+hierarchy+'_'+src_table
+        + 'cleaned_table' - 'c'+hierarchy+'_'+src_table
     """
     source_list = [source for source in csv.DictReader(open(path, 'rb'))]
     for source in source_list:
@@ -96,9 +97,12 @@ def read_csv(path):
                       if k == "hierarchy" and v != '')
         # for convenience, add the layer names to the dict
         hierarchy = str(source["hierarchy"]).zfill(2)
-        clean_table = "c"+hierarchy+"_"+source["alias"]
-        source.update({"src_table": source["alias"],
-                       "clean_table": clean_table})
+        input_table = "a"+hierarchy+"_"+source["alias"]
+        tiled_table = "b"+hierarchy+"_"+source["alias"]
+        cleaned_table = "c"+hierarchy+"_"+source["alias"]
+        source.update({"input_table": input_table,
+                       "cleaned_table": cleaned_table,
+                       "tiled_table": tiled_table})
     # return sorted list https://stackoverflow.com/questions/72899/
     return sorted(source_list, key=lambda k: k['hierarchy'])
 
@@ -271,7 +275,7 @@ def get_compressed_file_wrapper(path):
         return ZipCompatibleTarFile.open(path, 'r:bz2')
 
 
-def get_tiles(db, table, tile_table="tiles_250k"):
+def get_tiles(db, table, tile_table="a00_tiles_250k"):
     """Return a list of all intersecting tiles from specified layer
     """
     sql = """SELECT DISTINCT b.map_tile
@@ -303,7 +307,8 @@ def clip(db, in_table, clip_table, out_table):
                CASE
                  WHEN ST_CoveredBy(a.geom, b.geom) THEN a.geom
                  ELSE ST_Multi(
-                        ST_Intersection(a.geom,b.geom)) END AS geom
+                        ST_CollectionExtract(
+                          ST_Intersection(a.geom,b.geom), 3)) END AS geom
              FROM {in_table} AS a
              INNER JOIN {clip_table} AS b
              ON ST_Intersects(a.geom, b.geom)
@@ -315,65 +320,100 @@ def clip(db, in_table, clip_table, out_table):
     db.execute(sql)
 
 
-def preprocess(db, source_csv, alias=None, force_preprocess=False):
+def tile_sources(db, source_csv, alias=None, force=False):
     """
-    Before running the main processing job:
-      - create comprehensive tiling layer
-      - tile and validate each source
-      - preprocess (eg clip) sources as specified in source_csv
+    - merge/union data within sources
+    - cut sources by tile
+    - repair source geom
+    - add required columns
     """
     sources = read_csv(source_csv)
+    # process only the source layer specified
+    if alias:
+        sources = [s for s in sources if s['alias'] == alias]
+    # for all designated lands sources:
+    # - create new table name prefixed with b_<hierarchy>
+    # - create and populate standard columns:
+    #     - designation (equivalent to source's alias in sources.csv)
+    #     - designation_id (unique id of source feature)
+    #     - designation_name (name of source feature)
+    tile_sources = [s for s in sources
+                     if s["exclude"] != 'T' and s['hierarchy'] != 0]
+    for source in tile_sources:
+        if source["tiled_table"] not in db.tables or force:
+            info("Tiling and validating: %s" % source["alias"])
+            db[source["tiled_table"]].drop()
+            lookup = {"out_table": source["tiled_table"],
+                      "src_table": source["input_table"],
+                      "designation_id_col": source["designation_id_col"],
+                      "designation_name_col": source["designation_name_col"]}
+            sql = db.build_query(db.queries["prep1_merge_tile_a"], lookup)
+            db.execute(sql)
 
-    # create tile layer
-    if 'tiles' not in db.tables:
-        db.execute(db.queries["create_tiles"])
+
+def clean_and_agg_sources(db, source_csv, alias=None, force=False):
+    """
+    After sources are tiled and preprocessed, aggregation and cleaning is
+    helpful to reduce topology exceptions in further processing. This is
+    separate from the tiling / preprocessing because non-aggregated outputs
+    (with the source designation name and id) are required.
+    """
+    sources = read_csv(source_csv)
+    # process only the source layer specified
+    if alias:
+        sources = [s for s in sources if s['alias'] == alias]
+    # for all designated lands sources:
+    # - create new table name prefixed with c_<hierarchy>
+    # - aggregate by designation, tile
+    clean_sources = [s for s in sources
+                     if s["exclude"] != 'T' and s['hierarchy'] != 0]
+    for source in clean_sources:
+        if source["cleaned_table"] not in db.tables or force:
+            info("Cleaning and aggregating: %s" % source["alias"])
+            db[source["cleaned_table"]].drop()
+            lookup = {"out_table": source["cleaned_table"],
+                      "src_table": source["tiled_table"]}
+            sql = db.build_query(db.queries["prep2_clean_agg"], lookup)
+            db.execute(sql)
+
+
+def preprocess(db, source_csv, alias=None, force=False):
+    """ Preprocess (eg clip) sources as specified in source_csv
+    """
+    sources = read_csv(source_csv)
 
     # process only the source layer specified
     if alias:
         sources = [s for s in sources if s['alias'] == alias]
 
-    # for all designated lands sources:
-    # - create new table name prefixed with hierarchy
-    # - create and populate standard columns:
-    #     - designation (equivalent to source's alias in sources.csv)
-    #     - designation_id (unique id of source feature)
-    #     - designation_name (name of source feature)
-    clean_sources = [s for s in sources
-                     if s["exclude"] != 'T' and s['hierarchy'] != 0]
-    for source in clean_sources:
-        if source["clean_table"] not in db.tables or force_preprocess:
-            info("Tiling and validating: %s" % source["alias"])
-            db[source["clean_table"]].drop()
-            lookup = {"out_table": source["clean_table"],
-                      "src_table": source["src_table"],
-                      "designation_id_col": source["designation_id_col"],
-                      "designation_name_col": source["designation_name_col"]}
-            sql = db.build_query(db.queries["clean_and_tile"], lookup)
-            db.execute(sql)
-
     # apply pre-processing operation specified in sources.csv (eg clip)
     preprocess_sources = [s for s in sources
                           if s["preprocess_operation"] != '']
     for source in preprocess_sources:
-        if source["clean_table"]+"_preprc" not in db.tables or force_preprocess:
+        if source["input_table"]+"_preprc" not in db.tables or force:
+            info("Preprocessing: %s" % source["alias"])
             # find name of the pre-process layer to be used
             preprocess_lyr = [s for s in sources
                               if s["alias"] == source["preprocess_layer_alias"]][0]
+            # find the one character prefix used to designate input layers
+            # (preprocessing only works with raw inputs, nothing tiled or
+            # cleaned)
+            input_prefix = source["input_table"][0]
             function = source["preprocess_operation"]
             # call the specified preprocess function
+            info(source["input_table"])
             globals()[function](db,
-                                source["clean_table"],
-                                preprocess_lyr["alias"],
-                                source["clean_table"]+"_preprc")
-            # overwrite the cleaned table with the preprocessed table, but
+                                source["input_table"],
+                                input_prefix+"00_"+preprocess_lyr["alias"],
+                                source["input_table"]+"_preprc")
+            # overwrite the tiled table with the preprocessed table, but
             # retain the _preprc table as a flag that the job is done
-            db[source["clean_table"]].drop()
+            db[source["input_table"]].drop()
             db.execute("""CREATE TABLE {t} AS
-                          SELECT * FROM {temp}""".format(t=source["clean_table"],
-                                                         temp=source["clean_table"]+"_preprc"))
-            # re-create indexes
-            db[source["clean_table"]].create_index_geom()
-            db[source["clean_table"]].create_index(["id"])
+                          SELECT * FROM {temp}""".format(t=source["input_table"],
+                                                         temp=source["input_table"]+"_preprc"))
+            # re-create spatial index
+            db[source["input_table"]].create_index_geom()
 
 
 def create_bc_boundary(db, n_processes):
@@ -391,18 +431,18 @@ def create_bc_boundary(db, n_processes):
     # Prep boundary sources
     # First, combine ABMS boundary and marine ecosections
     db["bc_boundary_marine"].drop()
-    db.execute("""CREATE TABLE bc_boundary_marine AS
+    db.execute("""CREATE TABLE a00_bc_boundary_marine AS
                   SELECT
                     'bc_boundary_marine' as designation,
                      ST_Union(geom) as geom FROM
                       (SELECT st_union(geom) as geom
-                       FROM bc_abms
+                       FROM a00_bc_abms
                        UNION ALL
                        SELECT st_union(geom) as geom
-                       FROM marine_ecosections) as foo
+                       FROM a00_marine_ecosections) as foo
                    GROUP BY designation""")
 
-    for source in ["bc_boundary_land", "bc_boundary_marine"]:
+    for source in ["a00_bc_boundary_land", "a00_bc_boundary_marine"]:
         info('Prepping and inserting into bc_boundary: %s' % source)
         # subdivide before attempting to tile
         db["temp_"+source].drop()
@@ -414,7 +454,7 @@ def create_bc_boundary(db, n_processes):
         db[source+"_tiled"].drop()
         lookup = {"src_table": "temp_"+source,
                   "out_table": source+"_tiled"}
-        db.execute(db.build_query(db.queries["clean_union"], lookup))
+        db.execute(db.build_query(db.queries["prep1_merge_tile_b"], lookup))
         db["temp_"+source].drop()
 
         # combine the boundary layers into new table bc_boundary
@@ -504,11 +544,11 @@ def intersect(db, in_table, intersect_table, out_table, n_processes,
                """.format(t=out_table))
 
 
-def postprocess(db, sources, clean_table, out_table, n_processes, tiles=None):
-    """Postprocess _prelim designated lands table, creating output table
+def tidy_designations(db, sources, designation_key, out_table):
+    """Add and populate 'category' column, tidy the national park designations
     """
     # add category (rollup) column by creating lookup table from source.csv
-    lookup_data = [dict(alias=s[clean_table],
+    lookup_data = [dict(alias=s[designation_key],
                         category=s["category"])
                    for s in sources if s["category"]]
     # create lookup table
@@ -518,32 +558,24 @@ def postprocess(db, sources, clean_table, out_table, n_processes, tiles=None):
     db["category_lookup"].insert(lookup_data)
 
     # add category column
-    if "category" not in db[out_table+"_prelim"].columns:
+    if "category" not in db[out_table].columns:
         db.execute("""ALTER TABLE {t}
                       ADD COLUMN category TEXT
-                   """.format(t=out_table+"_prelim"))
+                   """.format(t=out_table))
 
     # populate category column from lookup
     db.execute("""UPDATE {t} AS o
                   SET category = lut.category
                   FROM category_lookup AS lut
                   WHERE o.designation = lut.alias
-               """.format(t=out_table+"_prelim"))
+               """.format(t=out_table))
 
     # Remove national park names from the national park tags
     sql = """UPDATE {t}
              SET designation = 'c01_park_national'
              WHERE designation LIKE 'c01_park_national%%'
-          """.format(t=out_table+"_prelim")
+          """.format(t=out_table)
     db.execute(sql)
-
-    # create marine-terrestrial layer
-    if 'bc_boundary' not in db.tables:
-        create_bc_boundary(db, n_processes)
-
-    info('Cutting output layer with marine-terrestrial definition')
-    intersect(db, out_table+"_prelim", "bc_boundary", out_table, n_processes,
-              tiles)
 
 
 def get_layer_name(file, layer_name):
@@ -582,15 +614,11 @@ def cli():
 
 @cli.command()
 def create_db():
-    """Create an empty postgis enabled db for processing
+    """Create a fresh database with required extensions
     """
     pgdb.create_db(CONFIG["db_url"])
     db = pgdb.connect(CONFIG["db_url"])
     db.execute("CREATE EXTENSION postgis")
-    # add lostgis functions: ST_Safe_Intersection, ST_Safe_Difference
-    # https://github.com/gojuno/lostgis
-    # this should be done in some other script
-    #subprocess.call("pgxn install lostgis", shell=True)
     db.execute("CREATE EXTENSION lostgis")
 
 
@@ -643,7 +671,7 @@ def load(source_csv, email, dl_path, alias, force_download):
 
         layer = get_layer_name(file, source["layer_in_file"])
         load_commands.append(db.ogr2pg(file, in_layer=layer,
-            out_layer=source["alias"], sql=source["query"], cmd_only=True))
+            out_layer=source["input_table"], sql=source["query"], cmd_only=True))
 
     # process manually downloaded sources
     for source in [s for s in sources if s["manual_download"] == 'T']:
@@ -652,13 +680,16 @@ def load(source_csv, email, dl_path, alias, force_download):
             raise Exception(file + " does not exist, download it manually")
         layer = get_layer_name(file, source["layer_in_file"])
         load_commands.append(db.ogr2pg(file, in_layer=layer,
-            out_layer=source["alias"], sql=source["query"], cmd_only=True))
+            out_layer=source["input_table"], sql=source["query"], cmd_only=True))
 
     # run all ogr commands in parallel
     info('loading data to postgres...')
     # https://stackoverflow.com/questions/14533458/python-threading-multiple-bash-subprocesses
     processes = [subprocess.Popen(cmd, shell=True) for cmd in load_commands]
     for p in processes: p.wait()
+
+    # create tiles layer
+    db.execute(db.queries["create_tiles"])
 
 
 @cli.command()
@@ -682,14 +713,27 @@ def process(source_csv, out_table, resume, force_preprocess, n_processes,
     - out_table_nooverlaps
     - out_table_analytical (add bc boundary, no gaps)
     """
-    # convert list of tiles to set
-    if tiles:
-        arg_tiles = set(tiles.split(","))
+    out_table = out_table.lower()
 
     db = pgdb.connect(CONFIG["db_url"], schema="public")
 
-    # run any required pre-processing
-    preprocess(db, source_csv, force_preprocess)
+    # run required preprocessing, tile, attempt to clean inputs
+    preprocess(db, source_csv, force=force_preprocess)
+    tile_sources(db, source_csv, force=force_preprocess)
+    clean_and_agg_sources(db, source_csv, force=force_preprocess)
+
+    # translate tile arg to 20k tiles (allows passing values like '093')
+    if tiles:
+        arg_tiles = []
+        for tile_token in tiles.split(","):
+            sql = """
+                  SELECT DISTINCT map_tile
+                  FROM tiles
+                  WHERE map_tile LIKE %s"""
+            tiles20 = [r[0] for r in db.query(sql, (tile_token+'%',)).fetchall()]
+            arg_tiles = arg_tiles + tiles20
+    else:
+        arg_tiles = None
 
     # create target tables if not resuming from a bailed process
     if not resume:
@@ -705,15 +749,15 @@ def process(source_csv, out_table, resume, force_preprocess, n_processes,
     # (tiles argument does not apply, we could build a tile query string but
     # it seems unnecessary)
     for source in sources:
-        info("Inserting %s into preliminary output overlap table" % source["clean_table"])
+        info("Inserting %s into preliminary output overlap table" % source["tiled_table"])
         sql = db.build_query(db.queries["populate_output_overlaps"],
-                             {"in_table": source["clean_table"],
-                              "out_table": out_table+"_overlaps_prelim"})
+                             {"in_table": source["tiled_table"],
+                              "out_table": out_table+"_overlaps"})
         db.execute(sql)
 
     # To create output table with no overlaps, more processing is required
-    # In case of bailing during tests/development, `resume` option is avail to
-    # enable resumption of processing at specified hierarchy number
+    # In case of bailing during tests/development, `resume` option is available
+    # to enable resumption of processing at specified hierarchy number
     if resume:
         p_sources = [s for s in sources if int(s["hierarchy"]) >= int(resume)]
     else:
@@ -725,31 +769,24 @@ def process(source_csv, out_table, resume, force_preprocess, n_processes,
     db.execute("UPDATE tiles SET id = tile_id")
     db.execute("ALTER TABLE tiles ADD COLUMN IF NOT EXISTS designation text")
     # Next, add simple tiles layer definition to sources list
-    p_sources.append({"clean_table": "tiles",
+    p_sources.append({"cleaned_table": "tiles",
                       "category": None})
-
     # iterate through all sources
     for source in p_sources:
         sql = db.build_query(db.queries["populate_output"],
-                             {"in_table": source["clean_table"],
+                             {"in_table": source["cleaned_table"],
                               "out_table": out_table+"_prelim"})
+        # determine which specified tiles are present in source layer
+        src_tiles = set(get_tiles(db, source["cleaned_table"],
+                                  tile_table='a00_tiles_20k'))
 
-        # Find tiles present in source layer
-        # Use the tile level specified in the tiles arg (20k or 250k)
-        # If no tiles arg provided, default to 20k
-        # Note that this should be documented for CLI
-        # 250k
-        if tiles and len(list(tiles)[0]) == 4:
-            src_tiles = set(db[source["clean_table"]].distinct('map_tile'))
-        # 20k
-        else:
-            src_tiles = set(get_tiles(db, source["clean_table"]))
         if arg_tiles:
-            tiles = arg_tiles & src_tiles
+            tiles = set(arg_tiles) & src_tiles
         else:
             tiles = src_tiles
+
         if tiles:
-            info("Inserting %s into preliminary output table" % source["clean_table"])
+            info("Inserting %s into preliminary output table" % source["cleaned_table"])
             # for testing, run only one process and report on tile
             if n_processes == 1:
                 for tile in tiles:
@@ -762,11 +799,16 @@ def process(source_csv, out_table, resume, force_preprocess, n_processes,
                 pool.close()
                 pool.join()
 
-    # clean up the output tables
-    # Note that not to include tiles arg in postprocess call for overlaps table
-    postprocess(db, sources, "clean_table", out_table+"_overlaps", n_processes)
-    postprocess(db, sources, "clean_table", out_table, n_processes, tiles)
+    # create marine-terrestrial layer
+    if 'bc_boundary' not in db.tables:
+        create_bc_boundary(db, n_processes)
 
+    info('Cutting %s with marine-terrestrial definition' % out_table)
+    intersect(db, out_table+"_prelim", "bc_boundary", out_table, n_processes,
+              tiles)
+
+    tidy_designations(db, sources, "cleaned_table", out_table)
+    tidy_designations(db, sources, "cleaned_table", out_table+"_overlaps")
 
 
 @cli.command()
@@ -818,28 +860,43 @@ def overlay(in_file, in_layer, dump_file, out_file, out_format, aggregate_fields
               help=HELP["out_file"])
 @click.option('--out_format', '-of', default=CONFIG["out_format"],
               help=HELP["out_format"])
-@click.option('--aggregate_fields', '-af', default="",
-              help="Fields to aggregate by, separated by commas")
-def dump(out_table, out_file, out_format, aggregate_fields):
-    """Dump output designated lands layer to file
+def dump(out_table, out_file, out_format):
     """
+    Dump output designated lands layer to file
+
+    Output data is aggregated across map tiles to remove gaps introduced in
+    tiling of the sources. Aggregation is by distinct 'designation' in the
+    output layer, and is run separately for each designation to speed things
+    up. To dump data aggregated by 'category', run your own ogr2ogr command.
+    """
+    db = pgdb.connect(CONFIG["db_url"], schema="public")
     info('Dumping %s to %s' % (out_table, out_file))
-
-    if len(aggregate_fields):
-        sql_string = """SELECT {f}, ST_Union(ST_CollectionExtract(ST_MakeValid(geom), 3)) as geom
-                        FROM {t}
-                        WHERE bc_boundary = 'bc_boundary_land_tiled'
-                        GROUP BY {f}
-                     """.format(t=out_table, f=aggregate_fields)
-    else:
-        sql_string = """SELECT *
-                        FROM {t} a
-                     """.format(t=out_table)
-
-    info(sql_string)
-    db = pgdb.connect(CONFIG["db_url"])
-    db.pg2ogr(sql_string, out_format, out_file, out_table,
-              geom_type="MULTIPOLYGON")
+    # find all non-null designations
+    designations = [d for d in db[out_table].distinct('designation') if d]
+    for designation in designations:
+        # note expansion/contraction buffering to remove tile gaps
+        # st_buffer of 0 on an st_collect is much faster than st_union
+        # st_collect is a bit less robust, it requires the st_removerepeatedpoints
+        # to complete successfully on sources that appear to come from rasters
+        # (mineral_reserve, ogma_legal)
+        #ST_Buffer(ST_Union(ST_Buffer(ST_Safe_Repair(geom),0.001)),-0.001) as geom
+        ogr_sql = """
+        SELECT designation, category, bc_boundary, st_buffer(geom, -.001) as geom
+        FROM (
+        SELECT
+          designation,
+          category,
+          bc_boundary,
+          st_buffer(
+            st_removerepeatedpoints(st_snaptogrid(st_collect(st_buffer(geom, .001)), .001), .01), 0) as geom
+        FROM {t}
+        WHERE designation = '{d}'
+        GROUP BY designation, category, bc_boundary) as foo
+        """.format(t=out_table,
+                   d=designation)
+        info(ogr_sql)
+        db.pg2ogr(ogr_sql, out_format, out_file, out_table,
+                  geom_type="MULTIPOLYGON", append=True)
 
 
 @cli.command()
