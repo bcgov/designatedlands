@@ -1,6 +1,6 @@
 # designatedlands
 
-Combine conservation related spatial data from many sources to create a single 'Designated Lands' layer for British Columbia.
+Combine conservation related spatial data from many sources to create a single 'Designated Lands' layer for British Columbia. Land designations that contribute to conservation are summarized in three broad categories: *Protected Lands* (further broken down into formal *Parks and Protected Areas*, and *Other Protected Lands*, *Resource Exclusion Areas* and *Spatially Managed Areas*.  Overlaps are removed such that areas with overlapping designations are assigned to the highest category.
 
 ## Requirements
 - PostgreSQL 8.4+, PostGIS 2.0+ (tested on PostgreSQL 9.6.5, PostGIS 2.4)
@@ -39,7 +39,6 @@ Combine conservation related spatial data from many sources to create a single '
 ## Configuration
 To modify the default database/files/folders used to hold the data, edit the `CONFIG` dictionary at the top of `designatedlands.py`  
 
-
 ```
 CONFIG = {
     "source_data": "source_data",
@@ -60,7 +59,6 @@ CONFIG = {
 | `out_table`| name of output table to create in postgres |
 | `out_file` | Output geopackage name" |
 | `out_format` | Output format. Default GPKG (Geopackage) |
-| `out_gdb`| path to output geodatabase |
 | `db_url`| [SQLAlchemy connection URL](http://docs.sqlalchemy.org/en/latest/core/engines.html#postgresql) pointing to the postgres database
 | `n_processes`| The inputs are broken up by tile and processed in parallel, define how many parallel processes to use. (default of -1 indicates number of cores on your machine minus one)|
 
@@ -83,8 +81,8 @@ Commands:
   load       Download data, load to postgres
   overlay    Intersect layer with designatedlands
   process    Create output conservation lands table
-  run_all    Run complete conservation lands job
 ```
+  <!-- run_all    Run complete conservation lands job -->
 
 For help regarding an individual command:
 ```
@@ -102,15 +100,23 @@ Options:
   --help                 Show this message and exit.
 ```
 
-### Examples
-Presuming all manual downloads specified are complete, process all data, then dump the results to shapefile:
+### Usage
+
+A complete run of the tool was completed on Sept 21, 2017, and the results are reported on [Environmental Reporting BC](http://www.env.gov.bc.ca/soe/indicators/land/land-designations.html). 
+
+To preserve the source data from that analysis, and to avoid having to download all of the different layers from the BCGW, 
+the source BCGW data are provided in a zip file attached to the [latest release](https://github.com/smnorris/conservationlands/releases). Download that file and extract it to the `source_data` folder.
+
+Download the other data sources specified as **manual downloads** in `sources.csv`.
+
+Then using the designatedlands tool, load and process all data, then dump the results to shapefile:
 ```
 $ python designatedlands.py create_db
 $ python designatedlands.py load --email myemail@email.bc.ca
 $ python designatedlands.py process
 $ python designatedlands.py dump
 ```
-Or, run all the above steps in a single command:
+<!-- Or, run all the above steps in a single command:
 ```
 $ python designatedlands.py run_all
 ```
@@ -123,6 +129,7 @@ $ python designatedlands.py load \
   --email myemail@email.bc.ca \
   --dl_path newparks_download
 ```
+-->
 
 #### Overlay
 In addition to creating the output conservation lands layer, this tool also provides a mechanism to overlay the results with administration or ecological units of your choice:
@@ -141,17 +148,12 @@ Options:
 ```
 
 To overlay `designatedlands` with BC ecosections:
-
+First get `ERC_ECOSECTIONS_SP.gdb` from [here](https://catalogue.data.gov.bc.ca/dataset/ecosections-ecoregion-ecosystem-classification-of-british-columbia)
 ```
-# get ecosection data 
-$ bcdata --email myemail@mail.bc.ca ecosections-ecoregion-ecosystem-classification-of-british-columbia
-
 # overlay with designatedlands layer to create output eco.gdb/ecosections_cnsrvtn
-$ python designatedlands.py overlay \
-  ERC_ECOSECTIONS_SP.gdb \
-  -l WHSE_TERRESTRIAL_ECOLOGY_ERC_ECOSECTIONS_SP_polygon \
-  -o eco.gdb \
-  -nln ecosections_cnsrvtn
+$ python designatedlands.py overlay ERC_ECOSECTIONS_SP.gdb --in_layer=WHSE_TERRESTRIAL_ECOLOGY_ERC_ECOSECTIONS_SP_polygon --new_layer_name=eco
+# Dump the output to file
+python designatedlands.py dump --out_table=eco_overlay --out_file=lands_eco.gpkg
 ```
 
 ### sources.csv
@@ -159,21 +161,24 @@ The file `sources.csv` defines all source layers and how they are processed. Edi
 
 | COLUMN                 | DESCRIPTION                                                                                                                                                                            | 
 |------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------| 
-| **hierarchy**              | An integer defining the importance of the conservation layer relative to other sources. In areas where sources overlap the source with the higher hierarchy value will take precedence. Equivalent hierarchy values for different layers are valid. Sources required for processing but not included in the conservation lands hierarchy (such as tiling, boundary, or preprocessing layers) should be give a hierarchy value of `0`. | 
-| **exclude**              | Used primarily for testing, a value of `T` will exclude the source from all operations | 
+| **hierarchy**              | An integer defining the order in which to overlay layers. In areas where sources overlap the source with the higher hierarchy value will take precedence. Equivalent hierarchy values for different layers are valid. Sources required for processing but not included in the conservation lands hierarchy (such as tiling, boundary, or preprocessing layers) should be give a hierarchy value of `0`. | 
+| **exclude**              | A value of `T` will exclude the source from all operations | 
 | **manual_download**        | A value of `T` indicates that a direct download url is not available for the data. Download these sources manually to the downloads folder and ensure that value given for **file_in_url** matches the name of the file in the download folder                                                            | 
 | **name**                   | Full name of the conservation land category                                                                                                                                                | 
-| **alias**                  | A unique underscore separated value used for coding the various conservation categories (eg `park_provincial`)                                                                                                | 
-| **rollup**                 | A number prefixed code defining the broader conservation class to which the layer belongs. Leave blank for non conservation lands sources (tiling, boundary or preprocessing layers)      | 
+| **alias**                  | A unique underscore separated value used for coding the various conservation categories (eg `park_provincial`)                                                                                                |
+| **designation_id_col**     | The column in the source data that defines the unique ID for each feature                                                                                                              |
+| **designation_name_col**   | The column in the source data that defines the name for each feature                                                                                                                   |
+| **category**                 | A number prefixed code defining the broader conservation class to which the layer belongs. Leave blank for non conservation lands sources (tiling, boundary or preprocessing layers)      | 
 | **url**                    | Download url for the data source                                                                                                                                                       | 
-| **file_in_url**            | Name of the file of interest in the download from specified url                                                                                                                        | 
-| **layer_in_file**          | For downloads of multi-layer files - specify the layer of interest within the file                                                                                                     | 
+| **file_in_url**            | Name of the file of interest in the download from specified url. Omitted for BCGW downloads                                                                                            | 
+| **layer_in_file**          | For downloads of multi-layer files, and BCGW object names - specify the layer of interest within the file                                                                              | 
 | **query**                  | A SQL query defining the subset of data of interest from the given file/layer (SQLite dialect)                                                                                         | 
 | **metadata_url**           | URL for metadata reference                                                                                                                                                             | 
 | **info_url**               | Background/info url in addtion to metadata (if available)   | 
 | **preprocess_operation**   | Pre-processing operation to apply to layer (`clip` is the only current supported operation)  | 
 | **preprocess_layer_alias** | `alias` of an additional layer to use in the **preprocess_operation** (for example, to clip a source by the Muskwa-Kechika Management Area boundary, set **preprocess_operation** = `clip` and **preprocess_layer_alias** = `mk_boundary` | 
 | **notes**                  | Misc notes related to layer                                                                                                                                                            | 
+| **license**                | The license under which the data is distrubted.
 
 
 
@@ -192,3 +197,5 @@ The file `sources.csv` defines all source layers and how they are processed. Edi
     WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
     See the License for the specific language governing permissions and
     limitations under the License.
+
+This repository is maintained by [Environmental Reporting BC](http://www2.gov.bc.ca/gov/content?id=FF80E0B985F245CEA62808414D78C41B). Click [here](https://github.com/bcgov/EnvReportBC-RepoList) for a complete list of our repositories on GitHub.
