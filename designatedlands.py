@@ -738,7 +738,6 @@ def process(source_csv, out_table, resume, force_preprocess, n_processes,
         # create output tables
         db.execute(db.build_query(db.queries["create_outputs_prelim"],
                                   {"table": out_table}))
-
     # filter sources - use only non-exlcuded sources with hierarchy > 0
     sources = [s for s in read_csv(source_csv)
                if s['hierarchy'] != 0 and s["exclude"] != 'T']
@@ -861,15 +860,13 @@ def dump(dump_table, out_file, out_format):
     """
     db = pgdb.connect(CONFIG["db_url"], schema="public")
     info('Dumping %s to %s' % (dump_table, out_file))
-    ogr_sql = """SELECT
-                  designation,
-                  category,
-                  map_tile,
-                  bc_boundary,
+    columns = [c for c in db[dump_table].columns if c != 'geom']
+    ogr_sql = """SELECT {cols},
                   st_snaptogrid(geom, .001) as geom
                 FROM {t}
                 WHERE designation IS NOT NULL
-             """.format(t=dump_table)
+             """.format(cols=",".join(columns),
+                        t=dump_table)
     info(ogr_sql)
     db = pgdb.connect(CONFIG["db_url"])
     db.pg2ogr(ogr_sql, out_format, out_file, dump_table,
