@@ -64,7 +64,7 @@ HELP = {
     "alias": "The 'alias' key identifing the source of interest, from source csv",
     "out_file": "Output geopackage name",
     "out_format": "Output format. Default GPKG (Geopackage)",
-    "out_table": 'Prefix for output designated lands postgres tables'}
+    "out_table": 'Name of output designated lands table'}
 
 
 def get_files(path):
@@ -605,6 +605,8 @@ def get_layer_name(file, layer_name):
 # --------------
 # CLI
 # --------------
+def validate_tablename(ctx, param, value):
+    return value.lower()
 
 
 @click.group()
@@ -614,7 +616,7 @@ def cli():
 
 @cli.command()
 def create_db():
-    """Create a fresh database with required extensions
+    """Create a fresh database
     """
     pgdb.create_db(CONFIG["db_url"])
     db = pgdb.connect(CONFIG["db_url"])
@@ -695,23 +697,19 @@ def load(source_csv, email, dl_path, alias, force_download):
 @cli.command()
 @click.option('--source_csv', '-s', default=CONFIG["source_csv"],
               type=click.Path(exists=True), help=HELP['csv'])
-@click.option('--out_table', '-o', default=CONFIG["out_table"],
-              help=HELP["out_table"])
+@click.option('--out_table', '-ot', callback=validate_tablename,
+              default=CONFIG["out_table"], help=HELP["out_table"])
 @click.option('--resume', '-r',
               help='hierarchy number at which to resume processing')
 @click.option('--force_preprocess', is_flag=True, default=False,
               help="Force re-preprocessing of input data")
 @click.option('--n_processes', '-p', default=CONFIG["n_processes"],
               help="Number of parallel processing threads to utilize")
-@click.option('--tiles', '-t', default=None,
+@click.option('--tiles', default=None,
               help="Comma separated list of tiles to process")
 def process(source_csv, out_table, resume, force_preprocess, n_processes,
             tiles):
-    """
-    Create output designated lands tables
-    - out_table_overlaps
-    - out_table_nooverlaps
-    - out_table_analytical (add bc boundary, no gaps)
+    """Create output designatedlands tables
     """
     out_table = out_table.lower()
 
@@ -813,6 +811,8 @@ def process(source_csv, out_table, resume, force_preprocess, n_processes,
 
 @cli.command()
 @click.argument('in_file', type=click.Path(exists=True))
+@click.option('--dl_table', '-dl', callback=validate_tablename,
+              default=CONFIG["out_table"], help=HELP["out_table"])
 @click.option('--in_layer', '-l', help="Input layer name")
 @click.option('--dump_file', is_flag=True, default=False,
               help="Dump to file (as specified by out_file and out_format)")
@@ -820,13 +820,11 @@ def process(source_csv, out_table, resume, force_preprocess, n_processes,
               help=HELP["out_file"])
 @click.option('--out_format', '-of', default=CONFIG["out_format"],
               help=HELP["out_format"])
-@click.option('--aggregate_fields', '-af', default="",
-              help="Fields to aggregate by, separated by commas (only used if --dump_file flag is used")
 @click.option('--new_layer_name', '-nln', help="Output layer name")
 @click.option('--n_processes', '-p', default=CONFIG["n_processes"],
               help="Number of parallel processing threads to utilize")
-def overlay(in_file, in_layer, dump_file, out_file, out_format, aggregate_fields,
-            new_layer_name, n_processes):
+def overlay(in_file, dl_table, in_layer, dump_file, out_file, out_format,
+            aggregate_fields, new_layer_name, n_processes):
     """Intersect layer with designatedlands"""
     # load in_file to postgres
     db = pgdb.connect(CONFIG["db_url"], schema="public")
@@ -842,61 +840,135 @@ def overlay(in_file, in_layer, dump_file, out_file, out_format, aggregate_fields
     tiles = [t for t in db["tiles"].distinct('map_tile')]
     # uncomment and adjust for debugging a specific tile
     # tiles = [t for t in tiles if t[:4] == '092K']
-    info("Intersecting %s with %s" % ('designatedlands', new_layer_name))
-    intersect(db, "designatedlands",
-              new_layer_name, out_layer, n_processes, tiles)
+    info("Intersecting %s with %s" % (dl_table, new_layer_name))
+    intersect(db, dl_table, new_layer_name, out_layer, n_processes, tiles)
 
     if dump_file:
         # dump result to file
         info("Dumping intersect to file %s " % out_file)
-
-        dump(out_layer, out_file, out_format, aggregate_fields)
+        dump(out_layer, out_file, out_format)
 
 
 @cli.command()
-@click.option('--out_table', '-o', default=CONFIG["out_table"],
-              help=HELP["out_table"])
+@click.option('--dump_table', '-t', callback=validate_tablename,
+              default=CONFIG["out_table"], help="Name of table to dump")
 @click.option('--out_file', '-o', default=CONFIG["out_file"],
               help=HELP["out_file"])
 @click.option('--out_format', '-of', default=CONFIG["out_format"],
               help=HELP["out_format"])
-def dump(out_table, out_file, out_format):
+def dump(dump_table, out_file, out_format):
+    """Dump output designatedlands table to file
     """
-    Dump output designated lands layer to file
+    db = pgdb.connect(CONFIG["db_url"], schema="public")
+    info('Dumping %s to %s' % (dump_table, out_file))
+    ogr_sql = """SELECT
+                  designation,
+                  category,
+                  map_tile,
+                  bc_boundary,
+                  st_snaptogrid(geom, .001) as geom
+                FROM {t}
+                WHERE designation IS NOT NULL
+             """.format(t=dump_table)
+    info(ogr_sql)
+    db = pgdb.connect(CONFIG["db_url"])
+    db.pg2ogr(ogr_sql, out_format, out_file, dump_table,
+              geom_type="MULTIPOLYGON")
+
+
+@cli.command()
+@click.option('--dump_table', '-t', callback=validate_tablename,
+              default=CONFIG["out_table"], help="Name of table to dump")
+@click.option('--new_layer_name', '-nln', help="Output layer name")
+@click.option('--out_file', '-o', default=CONFIG["out_file"],
+              help=HELP["out_file"])
+@click.option('--out_format', '-of', default=CONFIG["out_format"],
+              help=HELP["out_format"])
+def dump_aggregate(out_table, new_layer_name, out_file, out_format):
+    """Unsupported
+    """
+    """test aggregation of designatedlands over tile boundaries
 
     Output data is aggregated across map tiles to remove gaps introduced in
     tiling of the sources. Aggregation is by distinct 'designation' in the
-    output layer, and is run separately for each designation to speed things
-    up. To dump data aggregated by 'category', run your own ogr2ogr command.
+    output layer, and is run separately for each designation for speed.
+    To dump data aggregated by 'category' or some other field, build and run
+    your own ogr2ogr command based on below queries.
+
+    This command is unsupported, aggregation does not quite remove gaps across all
+    records and is very slow. Use mapshaper to aggregate outputs from the dump
+    command (convert to shapefile first)
+
+    eg:
+    $ mapshaper designatedlands.shp \
+        -clean snap-interval=0.01 \
+        -dissolve designatio copy-fields=category \
+        -explode \
+        -o dl_clean.shp
     """
     db = pgdb.connect(CONFIG["db_url"], schema="public")
-    info('Dumping %s to %s' % (out_table, out_file))
+    info('Aggregating %s to %s' % (out_table, new_layer_name))
     # find all non-null designations
     designations = [d for d in db[out_table].distinct('designation') if d]
+    db[new_layer_name].drop()
+    sql = """CREATE TABLE {new_layer_name} AS
+             SELECT designation, category, bc_boundary, geom
+             FROM {out_table}
+             LIMIT 0""".format(new_layer_name=new_layer_name,
+                               out_table=out_table)
+    db.execute(sql)
+    # iterate through designations to speed up the aggregation
     for designation in designations:
-        # note expansion/contraction buffering to remove tile gaps
-        # st_buffer of 0 on an st_collect is much faster than st_union
-        # st_collect is a bit less robust, it requires the st_removerepeatedpoints
-        # to complete successfully on sources that appear to come from rasters
-        # (mineral_reserve, ogma_legal)
-        #ST_Buffer(ST_Union(ST_Buffer(ST_Safe_Repair(geom),0.001)),-0.001) as geom
-        ogr_sql = """
-        SELECT designation, category, bc_boundary, st_buffer(geom, -.001) as geom
-        FROM (
+        info('Adding %s to %s' % (designation, new_layer_name))
+        # dump records entirely within a tile
+        sql = """
+        INSERT INTO {new_layer_name} (designation, category, bc_boundary, geom)
+        SELECT
+          dl.designation,
+          dl.category,
+          dl.bc_boundary,
+          dl.geom
+        FROM {t} dl
+        INNER JOIN tiles ON dl.map_tile = tiles.map_tile
+        WHERE dl.designation = %s
+        AND ST_Coveredby(dl.geom, ST_Buffer(tiles.geom, -.01))
+        """.format(t=out_table,
+                   new_layer_name=new_layer_name)
+        db.execute(sql, (designation,))
+        # aggregate cross-tile records
+        # Notes:
+        # - expansion/contraction buffering of 3mm to remove gaps between tiles
+        # - ST_Buffer of 0 on ST_Collect is much faster than ST_Union
+        # - ST_Collect is a bit less robust, it requires ST_RemoveRepeatedPoints
+        #   to complete successfully on sources that appear to come from rasters
+        #   (mineral_reserve, ogma_legal)
+        sql = """
+        INSERT INTO {new_layer_name} (designation, category, bc_boundary, geom)
         SELECT
           designation,
           category,
           bc_boundary,
-          st_buffer(
-            st_removerepeatedpoints(st_snaptogrid(st_collect(st_buffer(geom, .001)), .001), .01), 0) as geom
-        FROM {t}
-        WHERE designation = '{d}'
-        GROUP BY designation, category, bc_boundary) as foo
+          (ST_Dump(ST_Buffer(geom, -.003))).geom as geom
+        FROM (
+          SELECT
+            dl.designation,
+            dl.category,
+            dl.bc_boundary,
+            ST_Buffer(
+              ST_RemoveRepeatedPoints(
+                ST_SnapToGrid(
+                  ST_Collect(
+                    ST_Buffer(dl.geom, .003)), .001), .01), 0) as geom
+          FROM designatedlands dl
+        INNER JOIN tiles ON dl.map_tile = tiles.map_tile
+        WHERE dl.designation = %s
+        AND NOT ST_Coveredby(dl.geom, ST_Buffer(tiles.geom, -.01))
+        GROUP BY dl.designation, dl.category, dl.bc_boundary) as foo
         """.format(t=out_table,
-                   d=designation)
-        info(ogr_sql)
-        db.pg2ogr(ogr_sql, out_format, out_file, out_table,
-                  geom_type="MULTIPOLYGON", append=True)
+                   new_layer_name=new_layer_name)
+        db.execute(sql, (designation,))
+    info('Dumping %s to file %s', (new_layer_name, out_file))
+    db.pg2ogr("SELECT * from "+new_layer_name, out_format, out_file, new_layer_name)
 
 
 @cli.command()
@@ -905,9 +977,9 @@ def dump(out_table, out_file, out_format):
 @click.option('--email', help=HELP['email'])
 @click.option('--dl_path', default=CONFIG["source_data"],
               type=click.Path(exists=True), help=HELP['dl_path'])
-@click.option('--out_table', default=CONFIG["out_table"],
-              help=HELP['out_table'])
-@click.option('--out_file', default=CONFIG["out_file"], help=HELP['out_file'])
+@click.option('--out_table', '-ot', callback=validate_tablename,
+              default=CONFIG["out_table"], help=HELP['out_table'])
+@click.option('--out_file', '-o', default=CONFIG["out_file"], help=HELP['out_file'])
 @click.option('--out_format', '-of', default=CONFIG["out_format"],
               help=HELP["out_format"])
 def run_all(source_csv, email, dl_path, out_table, out_file, out_format):
