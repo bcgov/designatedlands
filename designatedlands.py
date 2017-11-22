@@ -137,7 +137,10 @@ def download_bcgw(url, dl_path, email=None, gdb=None):
     if not download:
         raise Exception("Failed to create DWDS order")
     # move the download to specified dl_path, deleting if it already exists
-    out_gdb = os.path.split(download)[1]
+    if gdb:
+        out_gdb = gdb
+    else:
+        out_gdb = os.path.split(download)[1]
     if os.path.exists(os.path.join(dl_path, out_gdb)):
         shutil.rmtree(os.path.join(dl_path, out_gdb))
     shutil.copytree(download, os.path.join(dl_path, out_gdb))
