@@ -18,7 +18,7 @@
 
 
 -- create empty table with new auto-indexed id column
-CREATE UNLOGGED TABLE IF NOT EXISTS $out_table (
+CREATE TABLE IF NOT EXISTS $out_table (
      id serial PRIMARY KEY,
      designation text,
      map_tile text,
