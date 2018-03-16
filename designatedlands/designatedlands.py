@@ -23,7 +23,7 @@ from sqlalchemy.types import Integer
 import click
 import pgdata
 
-import util
+from designatedlands import util
 
 
 logging.basicConfig(level=logging.INFO)

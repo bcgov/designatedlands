@@ -7,8 +7,8 @@ import click
 
 import pgdata
 
-import download
-import util
+from designatedlands import download
+from designatedlands import util
 
 HELP = {
     "cfg": 'Path to designatedlands config file',

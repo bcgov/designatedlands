@@ -20,8 +20,9 @@ setup(name='designatedlands',
       description=u"BC land designations that contribute to conservation",
       long_description=read('README.md'),
       classifiers=[
-        "Development Status :: 3 - Alpha",
+        "Development Status :: 4 - Beta",
         "Intended Audience :: Developers",
+        "Intended Audience :: Science/Research",
         "License :: OSI Approved :: Apache",
         "Operating System :: OS Independent",
         'Programming Language :: Python :: 3.6'

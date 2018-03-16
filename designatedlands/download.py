@@ -12,7 +12,7 @@ import zipfile
 import fiona
 import bcdata
 
-import util
+from designatedlands import util
 
 CHUNK_SIZE = 1024
 
