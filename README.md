@@ -14,35 +14,29 @@ A complete run of the tool was completed on Sept 21, 2017, and the results are r
 ## Optional 
 - [mapshaper](https://github.com/mbloch/mapshaper) (for aggregating output data across tiles)
 
-## Installation
-1. Install the requirements noted above
+## Installation 
+1. Install the requirements noted above. 
 
-2. Ensure Python is available at the command prompt. If the path to your Python executable is not already included in your PATH environment variable you will probably have to add it, using a command something like this:  
-
-        $ set PATH="E:\sw_nt\Python27\ArcGIS10.3";"E:\sw_nt\Python27\ArcGIS10.3\Scripts";%PATH%
-
-3. Ensure `pip` is installed, [install](https://pip.pypa.io/en/stable/installing/) if it is not. 
-
-4. (Optional) Consider installing dependencies to a [virtual environment](https://virtualenv.pypa.io/en/stable/) rather than to the system Python:
-
-        
-        $ pip install virtualenv                   # if not already installed
-        $ mkdir designatedlands_venv
-        $ virtualenv designatedlands_venv
-        $ source designatedlands_venv/bin/activate # activate the env, posix
-        $ designatedlands_venv\Scripts\activate    # activate the env, windows
-        
-5. Clone the repository and install Python dependencies:
+2. Clone the repository 
  
         $ git clone https://github.com/bcgov/designatedlands.git
         $ cd designatedlands
-        $ pip install -r requirements.txt
-    
-    Note that this procedure for installing Python dependencies will likely not work for Windows users. On Windows, Fiona installation requires manually downloading the pre-built wheel. [See the Fiona manual for details and a link to the wheel](https://github.com/Toblerity/Fiona#windows). Once Fiona is manually installed, `pip install -r requirements.txt` should work to install the rest of the libraries. Some further PATH configurations will be required if you are installing Fiona to a Python installed by ArcGIS (not recommended).
 
-6. Using the `pgxn` client (installed via `requirements.txt`, above), install the `lostgis` extension:
+3. Ensure Python, `pip` and `pipenv` are available at your command line (see this guide for more: http://docs.python-guide.org/en/latest/dev/virtualenvs/). 
+  
+4. Install `lostgis` PostreSQL functions:
+    - on macos/linux:
+        
+            $ pip install pgxn
+            $ pgxn install lostgis
+            
+    - on windows, see `scripts\lostgis_windows.bat`   
 
-        $ pgxn install lostgis
+5. Install Python dependencies:        
+     - on macos/linux
+            $ pipenv install
+     - on windows - install Fiona from the prebuilt wheel following the guide at (https://github.com/Toblerity/Fiona#windows), then pipenv install should work
+            
 
 ## Configuration
 To modify the default database/files/folders used to hold the data, edit the `CONFIG` dictionary at the top of `designatedlands.py`  

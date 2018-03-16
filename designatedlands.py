@@ -16,9 +16,14 @@ import os
 import re
 import logging
 import tempfile
-from urlparse import urlparse
+
+try:
+    from urllib.parse import urlparse
+except ImportError:
+     from urllib.parse import urlparse
+
 import shutil
-import urllib2
+import urllib.request, urllib.error, urllib.parse
 import zipfile
 import tarfile
 import csv
@@ -35,7 +40,9 @@ import click
 import fiona
 
 import bcdata
-import pgdb
+import pgdata
+
+import util
 
 # --------------------------------------------
 # Change default database/paths/filenames etc here (see README.md)
@@ -58,6 +65,7 @@ CHUNK_SIZE = 1024
 logging.basicConfig(level=logging.INFO)
 
 HELP = {
+    "cfg": 'Path to designatedlands config file',
     "csv": 'Path to csv that lists all input data sources',
     "email": 'A valid email address, used for DataBC downloads',
     "dl_path": 'Path to folder holding downloaded data',
@@ -90,10 +98,10 @@ def read_csv(path):
         + 'tiled_table'   - 'b'+hierarchy+'_'+src_table
         + 'cleaned_table' - 'c'+hierarchy+'_'+src_table
     """
-    source_list = [source for source in csv.DictReader(open(path, 'rb'))]
+    source_list = [source for source in csv.DictReader(open(path))]
     for source in source_list:
         # convert hierarchy value to integer
-        source.update((k, int(v)) for k, v in source.iteritems()
+        source.update((k, int(v)) for k, v in source.items()
                       if k == "hierarchy" and v != '')
         # for convenience, add the layer names to the dict
         hierarchy = str(source["hierarchy"]).zfill(2)
@@ -125,15 +133,13 @@ def get_path_parts(path):
     return path.split(os.sep)
 
 
-def download_bcgw(url, dl_path, email=None, gdb=None):
+def download_bcgw(url, dl_path, email, gdb=None):
     """Download BCGW data using DWDS
     """
-    # make sure an email is provided
-    if not email:
-        email = os.environ["BCDATA_EMAIL"]
-    if not email:
-        raise Exception("An email address is required to download BCGW data")
-    download = bcdata.download(url, email)
+    # get just the package name from the url
+    package = os.path.split(urllib.parse.urlparse(url).path)[1]
+
+    download = bcdata.download(package, email)
     if not download:
         raise Exception("Failed to create DWDS order")
     # move the download to specified dl_path, deleting if it already exists
@@ -163,7 +169,7 @@ def download_non_bcgw(url, download_cache=None):
     cache_path = None
     if download_cache is not None:
         cache_path = os.path.join(download_cache,
-            hashlib.sha224(url).hexdigest())
+            hashlib.sha224(url.encode('utf-8')).hexdigest())
         if os.path.exists(cache_path):
             info("Returning %s from local cache at %s" % (url, cache_path))
             fp.close()
@@ -180,7 +186,7 @@ def download_non_bcgw(url, download_cache=None):
         for chunk in res.iter_content(CHUNK_SIZE):
             fp.write(chunk)
     elif parsed_url.scheme == "ftp":
-        download = urllib2.urlopen(url)
+        download = urllib.request.urlopen(url)
 
         file_size_dl = 0
         block_sz = 8192
@@ -290,11 +296,18 @@ def get_tiles(db, table, tile_table="a00_tiles_250k"):
     return [r[0] for r in db.query(sql)]
 
 
-def parallel_tiled(sql, tile, n_subs=2):
-    """Create a connection and execute query for specified tile
-       n_subs is the number of places in the sql query that should be substituted by the tile name
+def parallel_tiled(db_url, sql, tile, n_subs=2):
     """
-    db = pgdb.connect(CONFIG["db_url"], schema="public", multiprocessing=True)
+    Create a connection and execute query for specified tile
+    n_subs is the number of places in the sql query that should be
+    substituted by the tile name
+    """
+    db = pgdata.connect(db_url, schema="public", multiprocessing=True)
+    # As we are explicitly splitting up our job by tile and processing tiles
+    # concurrently in individual connections we don't want the database to try
+    # and manage parallel execution of these queries within these connections.
+    # Turn off this connection's parallel execution:
+    db.execute("SET max_parallel_workers_per_gather = 0")
     db.execute(sql, (tile+"%",) * n_subs)
 
 
@@ -465,7 +478,7 @@ def create_bc_boundary(db, n_processes):
                              {"in_table": source+"_tiled",
                               "out_table": "bc_boundary"})
         tiles = get_tiles(db, source+"_tiled")
-        func = partial(parallel_tiled, sql)
+        func = partial(parallel_tiled, db.url, sql)
         pool = multiprocessing.Pool(processes=n_processes)
         pool.map(func, tiles)
         pool.close()
@@ -503,7 +516,7 @@ def intersect(db, in_table, intersect_table, out_table, n_processes,
     db[out_table].drop()
     # add primary key
     pk = Column(out_table+"_id", Integer, primary_key=True)
-    pgdb.Table(db, "public", out_table, [pk]+in_columns+intersect_columns)
+    pgdata.Table(db, "public", out_table, [pk]+in_columns+intersect_columns)
     # populate the output table
     if 'map_tile' not in [c.name for c in db[intersect_table].sqla_columns]:
         query = "intersect_inputtiled"
@@ -526,7 +539,7 @@ def intersect(db, in_table, intersect_table, out_table, n_processes,
                               "out_table": out_table})
     if not tiles:
         tiles = get_tiles(db, intersect_table, "tiles")
-    func = partial(parallel_tiled, sql)
+    func = partial(parallel_tiled, db.url, sql)
     pool = multiprocessing.Pool(processes=n_processes)
 
     # add a progress bar
@@ -618,28 +631,36 @@ def cli():
 
 
 @cli.command()
-def create_db():
+@click.option('--config', '-c', default="designatedlands.cfg",
+              type=click.Path(exists=True), help=HELP['cfg'])
+def create_db(config):
     """Create a fresh database
     """
-    pgdb.create_db(CONFIG["db_url"])
-    db = pgdb.connect(CONFIG["db_url"])
-    db.execute("CREATE EXTENSION postgis")
-    db.execute("CREATE EXTENSION lostgis")
+    config = util.read_config(config)
+    pgdata.create_db(config["db_url"])
+    db = pgdata.connect(config["db_url"])
+    db.execute("CREATE EXTENSION IF NOT EXISTS postgis")
+    # the pgxn extension does not work on windows
+    # note to the user to add lostgis functions manually with provided
+    # .bat file as a reference
+    if os.name == 'posix':
+        db.execute("CREATE EXTENSION IF NOT EXISTS lostgis")
+    else:
+        info('Remember to add required lostgis functions to your new database')
+        info('See scripts\lostgis_windows.bat as a guide')
 
 
 @cli.command()
-@click.option('--source_csv', '-s', default=CONFIG["source_csv"],
-              type=click.Path(exists=True), help=HELP['csv'])
-@click.option('--email', help=HELP['email'])
-@click.option('--dl_path', default=CONFIG["source_data"],
-              type=click.Path(exists=True), help=HELP['dl_path'])
+@click.option('--config', '-c', default="designatedlands.cfg",
+              type=click.Path(exists=True), help=HELP['cfg'])
 @click.option('--alias', '-a', help=HELP['alias'])
 @click.option('--force_download', default=False, help='Force fresh download')
-def load(source_csv, email, dl_path, alias, force_download):
+def load(config, alias, force_download):
     """Download data, load to postgres
     """
-    db = pgdb.connect(CONFIG["db_url"])
-    sources = read_csv(source_csv)
+    config = util.read_config(config)
+    db = pgdata.connect(config["db_url"])
+    sources = read_csv(config["source_csv"])
 
     # filter sources based on optional provided alias and ignoring excluded
     if alias:
@@ -653,15 +674,16 @@ def load(source_csv, email, dl_path, alias, force_download):
         # handle BCGW downloads
         if urlparse(source["url"]).hostname == 'catalogue.data.gov.bc.ca':
             gdb = source["layer_in_file"].split(".")[1].strip() + ".gdb"
-            file = os.path.join(dl_path, gdb)
+            file = os.path.join(config["dl_path"], gdb)
             # download only if layer is not already there or if forced
             if not os.path.exists(file) and not force_download:
-                download_bcgw(source["url"], dl_path, email=email, gdb=gdb)
+                download_bcgw(source["url"], config["dl_path"],
+                              email=config["email"], gdb=gdb)
 
         # handle all other downloads
         else:
-            if os.path.exists(os.path.join(dl_path, source["alias"])):
-                file = os.path.join(dl_path, source["alias"],
+            if os.path.exists(os.path.join(config['dl_path'], source["alias"])):
+                file = os.path.join(config['dl_path'], source["alias"],
                                     source['file_in_url'])
             else:
                 download_cache = os.path.join(tempfile.gettempdir(), "dl_cache")
@@ -670,7 +692,7 @@ def load(source_csv, email, dl_path, alias, force_download):
                 fp = download_non_bcgw(source['url'], download_cache)
                 # * here we assume that all non-bcgw downloads are zip files *
                 file = extract(fp,
-                               dl_path,
+                               config['dl_path'],
                                source['alias'],
                                source['file_in_url'])
 
@@ -680,7 +702,7 @@ def load(source_csv, email, dl_path, alias, force_download):
 
     # process manually downloaded sources
     for source in [s for s in sources if s["manual_download"] == 'T']:
-        file = os.path.join(dl_path, source["file_in_url"])
+        file = os.path.join(config['dl_path'], source["file_in_url"])
         if not os.path.exists(file):
             raise Exception(file + " does not exist, download it manually")
         layer = get_layer_name(file, source["layer_in_file"])
@@ -698,10 +720,8 @@ def load(source_csv, email, dl_path, alias, force_download):
 
 
 @cli.command()
-@click.option('--source_csv', '-s', default=CONFIG["source_csv"],
-              type=click.Path(exists=True), help=HELP['csv'])
-@click.option('--out_table', '-ot', callback=validate_tablename,
-              default=CONFIG["out_table"], help=HELP["out_table"])
+@click.option('--config', '-c', default="designatedlands.cfg",
+              type=click.Path(exists=True), help=HELP['cfg'])
 @click.option('--resume', '-r',
               help='hierarchy number at which to resume processing')
 @click.option('--force_preprocess', is_flag=True, default=False,
@@ -710,18 +730,19 @@ def load(source_csv, email, dl_path, alias, force_download):
               help="Number of parallel processing threads to utilize")
 @click.option('--tiles', default=None,
               help="Comma separated list of tiles to process")
-def process(source_csv, out_table, resume, force_preprocess, n_processes,
+def process(config, resume, force_preprocess, n_processes,
             tiles):
     """Create output designatedlands tables
     """
-    out_table = out_table.lower()
+    config = util.read_config(config)
+    out_table = config['out_table'].lower()
 
-    db = pgdb.connect(CONFIG["db_url"], schema="public")
+    db = pgdata.connect(config["db_url"], schema="public")
 
     # run required preprocessing, tile, attempt to clean inputs
-    preprocess(db, source_csv, force=force_preprocess)
-    tile_sources(db, source_csv, force=force_preprocess)
-    clean_and_agg_sources(db, source_csv, force=force_preprocess)
+    preprocess(db, config['source_csv'], force=force_preprocess)
+    tile_sources(db, config['source_csv'], force=force_preprocess)
+    clean_and_agg_sources(db, config['source_csv'], force=force_preprocess)
 
     # translate tile arg to 20k tiles (allows passing values like '093')
     if tiles:
@@ -742,7 +763,7 @@ def process(source_csv, out_table, resume, force_preprocess, n_processes,
         db.execute(db.build_query(db.queries["create_outputs_prelim"],
                                   {"table": out_table}))
     # filter sources - use only non-exlcuded sources with hierarchy > 0
-    sources = [s for s in read_csv(source_csv)
+    sources = [s for s in read_csv(config['source_csv'])
                if s['hierarchy'] != 0 and s["exclude"] != 'T']
 
     # To create output table with overlaps, simply combine all source data
@@ -793,7 +814,7 @@ def process(source_csv, out_table, resume, force_preprocess, n_processes,
                     info(tile)
                     db.execute(sql, (tile + "%", ) * 2)
             else:
-                func = partial(parallel_tiled, sql, n_subs=2)
+                func = partial(parallel_tiled, db.url, sql, n_subs=2)
                 pool = multiprocessing.Pool(processes=n_processes)
                 pool.map(func, tiles)
                 pool.close()
@@ -812,24 +833,19 @@ def process(source_csv, out_table, resume, force_preprocess, n_processes,
 
 
 @cli.command()
+@click.option('--config', '-c', default="designatedlands.cfg",
+              type=click.Path(exists=True), help=HELP['cfg'])
 @click.argument('in_file', type=click.Path(exists=True))
-@click.option('--dl_table', '-dl', callback=validate_tablename,
-              default=CONFIG["out_table"], help=HELP["out_table"])
 @click.option('--in_layer', '-l', help="Input layer name")
 @click.option('--dump_file', is_flag=True, default=False,
               help="Dump to file (as specified by out_file and out_format)")
-@click.option('--out_file', '-o', default=CONFIG["out_file"],
-              help=HELP["out_file"])
-@click.option('--out_format', '-of', default=CONFIG["out_format"],
-              help=HELP["out_format"])
 @click.option('--new_layer_name', '-nln', help="Output layer name")
-@click.option('--n_processes', '-p', default=CONFIG["n_processes"],
-              help="Number of parallel processing threads to utilize")
-def overlay(in_file, dl_table, in_layer, dump_file, out_file, out_format,
-            aggregate_fields, new_layer_name, n_processes):
-    """Intersect layer with designatedlands"""
+def overlay(config, in_file, in_layer, dump_file, new_layer_name):
+    """Intersect layer with designatedlands
+    """
+    config = util.read_config(config)
     # load in_file to postgres
-    db = pgdb.connect(CONFIG["db_url"], schema="public")
+    db = pgdata.connect(config['db_url'], schema="public")
     if not in_layer:
         in_layer = fiona.listlayers(in_file)[0]
     if not new_layer_name:
@@ -842,49 +858,43 @@ def overlay(in_file, dl_table, in_layer, dump_file, out_file, out_format,
     tiles = [t for t in db["tiles"].distinct('map_tile')]
     # uncomment and adjust for debugging a specific tile
     # tiles = [t for t in tiles if t[:4] == '092K']
-    info("Intersecting %s with %s" % (dl_table, new_layer_name))
-    intersect(db, dl_table, new_layer_name, out_layer, n_processes, tiles)
+    info("Intersecting %s with %s" % (config['out_table'], new_layer_name))
+    intersect(db, config['out_table'], new_layer_name, out_layer,
+              config['n_processes'], tiles)
 
     if dump_file:
         # dump result to file
-        info("Dumping intersect to file %s " % out_file)
-        dump(out_layer, out_file, out_format)
+        info("Dumping intersect to file %s " % config['out_file'])
+        dump(out_layer, config['out_file'], config['out_format'])
 
 
 @cli.command()
-@click.option('--dump_table', '-t', callback=validate_tablename,
-              default=CONFIG["out_table"], help="Name of table to dump")
-@click.option('--out_file', '-o', default=CONFIG["out_file"],
-              help=HELP["out_file"])
-@click.option('--out_format', '-of', default=CONFIG["out_format"],
-              help=HELP["out_format"])
-def dump(dump_table, out_file, out_format):
+@click.option('--config', '-c', default="designatedlands.cfg",
+              type=click.Path(exists=True), help=HELP['cfg'])
+def dump(config):
     """Dump output designatedlands table to file
     """
-    db = pgdb.connect(CONFIG["db_url"], schema="public")
-    info('Dumping %s to %s' % (dump_table, out_file))
-    columns = [c for c in db[dump_table].columns if c != 'geom']
+    config = util.read_config(config)
+    db = pgdata.connect(config["db_url"], schema="public")
+    info('Dumping %s to %s' % (config['out_table'], config['out_file']))
+    columns = [c for c in db[config['out_table']].columns if c != 'geom']
     ogr_sql = """SELECT {cols},
                   st_snaptogrid(geom, .001) as geom
                 FROM {t}
                 WHERE designation IS NOT NULL
              """.format(cols=",".join(columns),
-                        t=dump_table)
+                        t=config['out_table'])
     info(ogr_sql)
-    db = pgdb.connect(CONFIG["db_url"])
-    db.pg2ogr(ogr_sql, out_format, out_file, dump_table,
-              geom_type="MULTIPOLYGON")
+    db = pgdata.connect(config["db_url"])
+    db.pg2ogr(ogr_sql, config['out_format'], config['out_file'],
+              config['out_table'], geom_type="MULTIPOLYGON")
 
 
 @cli.command()
-@click.option('--dump_table', '-t', callback=validate_tablename,
-              default=CONFIG["out_table"], help="Name of table to dump")
+@click.option('--config', '-c', default="designatedlands.cfg",
+              type=click.Path(exists=True), help=HELP['cfg'])
 @click.option('--new_layer_name', '-nln', help="Output layer name")
-@click.option('--out_file', '-o', default=CONFIG["out_file"],
-              help=HELP["out_file"])
-@click.option('--out_format', '-of', default=CONFIG["out_format"],
-              help=HELP["out_format"])
-def dump_aggregate(out_table, new_layer_name, out_file, out_format):
+def dump_aggregate(config, new_layer_name):
     """Unsupported
     """
     """test aggregation of designatedlands over tile boundaries
@@ -906,16 +916,17 @@ def dump_aggregate(out_table, new_layer_name, out_file, out_format):
         -explode \
         -o dl_clean.shp
     """
-    db = pgdb.connect(CONFIG["db_url"], schema="public")
-    info('Aggregating %s to %s' % (out_table, new_layer_name))
+    config = util.read_config(config)
+    db = pgdata.connect(config["db_url"], schema="public")
+    info('Aggregating %s to %s' % (config['out_table'], new_layer_name))
     # find all non-null designations
-    designations = [d for d in db[out_table].distinct('designation') if d]
+    designations = [d for d in db[config['out_table']].distinct('designation') if d]
     db[new_layer_name].drop()
     sql = """CREATE TABLE {new_layer_name} AS
              SELECT designation, category, bc_boundary, geom
              FROM {out_table}
              LIMIT 0""".format(new_layer_name=new_layer_name,
-                               out_table=out_table)
+                               out_table=config['out_table'])
     db.execute(sql)
     # iterate through designations to speed up the aggregation
     for designation in designations:
@@ -932,7 +943,7 @@ def dump_aggregate(out_table, new_layer_name, out_file, out_format):
         INNER JOIN tiles ON dl.map_tile = tiles.map_tile
         WHERE dl.designation = %s
         AND ST_Coveredby(dl.geom, ST_Buffer(tiles.geom, -.01))
-        """.format(t=out_table,
+        """.format(t=config['out_table'],
                    new_layer_name=new_layer_name)
         db.execute(sql, (designation,))
         # aggregate cross-tile records
@@ -964,31 +975,24 @@ def dump_aggregate(out_table, new_layer_name, out_file, out_format):
         WHERE dl.designation = %s
         AND NOT ST_Coveredby(dl.geom, ST_Buffer(tiles.geom, -.01))
         GROUP BY dl.designation, dl.category, dl.bc_boundary) as foo
-        """.format(t=out_table,
+        """.format(t=config['out_table'],
                    new_layer_name=new_layer_name)
         db.execute(sql, (designation,))
-    info('Dumping %s to file %s', (new_layer_name, out_file))
-    db.pg2ogr("SELECT * from "+new_layer_name, out_format, out_file, new_layer_name)
+    info('Dumping %s to file %s', (new_layer_name, config['out_file']))
+    db.pg2ogr("SELECT * from "+new_layer_name, config['out_format'],
+              config['out_file'], new_layer_name)
 
 
 @cli.command()
-@click.option('--source_csv', '-s', default=CONFIG["source_csv"],
-              type=click.Path(exists=True), help=HELP['csv'])
-@click.option('--email', help=HELP['email'])
-@click.option('--dl_path', default=CONFIG["source_data"],
-              type=click.Path(exists=True), help=HELP['dl_path'])
-@click.option('--out_table', '-ot', callback=validate_tablename,
-              default=CONFIG["out_table"], help=HELP['out_table'])
-@click.option('--out_file', '-o', default=CONFIG["out_file"], help=HELP['out_file'])
-@click.option('--out_format', '-of', default=CONFIG["out_format"],
-              help=HELP["out_format"])
-def run_all(source_csv, email, dl_path, out_table, out_file, out_format):
+@click.option('--config', '-c', default="designatedlands.cfg",
+              type=click.Path(exists=True), help=HELP['cfg'])
+def run_all(config):
     """ Run complete designated lands job
     """
-    create_db()
-    load(source_csv, email, dl_path)
-    process(source_csv, out_table)
-    dump(out_file, out_format)
+    create_db(config)
+    load(config)
+    process(config)
+    dump(config)
 
 
 if __name__ == '__main__':
