@@ -1,0 +1,13 @@
+Changes
+=======
+
+All issue numbers are relative to https://github.com/bcgov/designatedlands/issues.
+
+0.1.0 (2018-03-31)
+------------------
+- change category for Forest Rec Sites (#50)
+- general tidy and support distribution as a Python module (#39)
+- set config via file rather than hard coded defaults modified by cli options
+- upgrade to Python 3.6 / PostgreSQL 10.2 / PostGIS 2.4 / pgdata 0.0.9 (#41, #51)
+- advise use of mapshaper for aggregating outputs rather than supporting a PostGIS driven function (#37)
+
