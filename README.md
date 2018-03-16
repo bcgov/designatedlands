@@ -183,3 +183,12 @@ The file `sources.csv` defines all source layers and how they are processed. Edi
 ## License
 
 This repository is maintained by [Environmental Reporting BC](http://www2.gov.bc.ca/gov/content?id=FF80E0B985F245CEA62808414D78C41B). Click [here](https://github.com/bcgov/EnvReportBC-RepoList) for a complete list of our repositories on GitHub.
+
+## Credits
+
+Thanks to [@Komzpa](https://github.com/Komzpa), [@pramsey](https://github.com/pramsey) and Stack Exchange for functions / blog posts / answers / advice on dealing with topological errors in PostGIS:
+
+- [lostgis](https://github.com/gojuno/lostgis)
+- [buffering](https://gis.stackexchange.com/questions/101639/postgis-st-buffer-breaks-because-of-no-forward-edges)
+- [merging](https://gis.stackexchange.com/questions/31895/joining-lots-of-small-polygons-to-form-larger-polygon-using-postgis)
+- [slivers](https://gis.stackexchange.com/questions/198115/how-to-delete-the-small-gaps-slivers-between-polygons-after-merging-adjacent-p)
