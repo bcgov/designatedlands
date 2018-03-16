@@ -7,78 +7,76 @@ Combine conservation related spatial data from many sources to create a single '
 A complete run of the tool was completed on Sept 21, 2017, and the results are reported on [Environmental Reporting BC](http://www.env.gov.bc.ca/soe/indicators/land/land-designations.html). 
 
 ## Requirements
-- PostgreSQL 9.0+, PostGIS 2.0+ (tested with PostgreSQL 9.6.5, PostGIS 2.3.2)
-- GDAL (with `ogr2ogr` available at the command line) (tested with GDAL 2.2.1_3)
-- Python 2.7 (tested with 2.7.13)
+- PostgreSQL 10.0+, PostGIS 2.3+ (tested with PostgreSQL 10.2, PostGIS 2.4.3)
+- GDAL (with `ogr2ogr` available at the command line) (tested with GDAL 2.2.3)
+- Python 3.6
 
 ## Optional 
-- [mapshaper](https://github.com/mbloch/mapshaper) (for aggregating output data across tiles)
+- to aggregate output data across tiles, use [mapshaper](https://github.com/mbloch/mapshaper)
 
 ## Installation 
 1. Install the requirements noted above. 
 
-2. Clone the repository 
+2. Clone the repository:
  
         $ git clone https://github.com/bcgov/designatedlands.git
         $ cd designatedlands
 
-3. Ensure Python, `pip` and `pipenv` are available at your command line (see this guide for more: http://docs.python-guide.org/en/latest/dev/virtualenvs/). 
+3. Ensure Python and `pip` (and optionally `pipenv`) are available at your command line (see [python-guide](http://docs.python-guide.org/en/latest/dev/virtualenvs/) for more info)  
   
-4. Install `lostgis` PostreSQL functions:
-    - on macos/linux:
+4. Install [`lostgis`](https://github.com/gojuno/lostgis) PostreSQL functions:  
+
+    **macos/linux**
         
-            $ pip install pgxn
-            $ pgxn install lostgis
+        $ pip install pgxn
+        $ pgxn install lostgis
             
-    - on windows, see `scripts\lostgis_windows.bat`   
+    **Windows**  
+
+    The [pgxn client](https://github.com/dvarrazzo/pgxnclient) does not work on Windows. See `scripts\lostgis_windows.bat` for a guide to installing the required functions. 
 
 5. Install Python dependencies:        
-     - on macos/linux
-            $ pipenv install
-     - on windows - install Fiona from the prebuilt wheel following the guide at (https://github.com/Toblerity/Fiona#windows), then pipenv install should work
+     
+
+     **macos/linux**
+     
+        $ pipenv install
+
+     **Windows**  
+
+     First, download the appropriate prebuilt wheel for Fiona following [this guide](https://github.com/Toblerity/Fiona#windows). The GDAL wheel may also be required. Install fiona using `pipenv`. Once fiona is installed, `pipenv install` should work to install other dependencies.
             
 
 ## Configuration
-To modify the default database/files/folders used to hold the data, edit the `CONFIG` dictionary at the top of `designatedlands.py`  
-
-```
-CONFIG = {
-    "source_data": "source_data",
-    "source_csv": "sources.csv",
-    "out_table": "designatedlands",
-    "out_file": "designatedlands.gpkg",
-    "out_format": "GPKG",
-    "db_url":
-    "postgresql://postgres:postgres@localhost:5432/designatedlands",
-    "n_processes": multiprocessing.cpu_count() - 1
-    }
-```
+Modify general configuration of designatedlands by editing the default `designatedlands.cfg` or by creating your own config file with the same keys and passing it as an argument to the command line tool.
 
 | KEY       | VALUE                                            |
 |-----------|--------------------------------------------------| 
+| `email`| Email address to use for downloading data from DataBC catalogue. Defaults to environment `BCDATA_EMAIL` if this is not provided
 | `source_data`| path to folder that holds downloaded datasets |
 | `source_csv`| path to file that holds all data source definitions |
 | `out_table`| name of output table to create in postgres |
 | `out_file` | Output geopackage name" |
 | `out_format` | Output format. Default GPKG (Geopackage) |
 | `db_url`| [SQLAlchemy connection URL](http://docs.sqlalchemy.org/en/latest/core/engines.html#postgresql) pointing to the postgres database
-| `n_processes`| The inputs are broken up by tile and processed in parallel, define how many parallel processes to use. (default of -1 indicates number of cores on your machine minus one)|
+| `n_processes`| Input layers are broken up by tile and processed in parallel, define how many parallel processes to use. (default of -1 indicates number of cores on your machine minus one)|
+
 
 ## Usage
 
 First, configure or adapt the file `sources.csv` as required. This file defines all layers/data sources to be processed and how the script will process each layer. See [below](#sources.csv) for a full description of this file and how it defines the various data sources.
 
-For repeating the Sept 21, 2017 analysis, source BCGW data are provided in a zip file attached to the [latest release](https://github.com/bcgov/designatedlands/releases). Download that file and extract it to the `source_data` folder.
+For repeating the Sept 21, 2017 analysis, source BCGW data are provided in a zip file attached to the [latest release](https://github.com/bcgov/designatedlands/releases). Manually download that file and extract it to the `source_data` folder.
 
-Next, download data sources specified as **manual downloads** in `sources.csv`.
+If running a new analysis, download data sources specified as **manual downloads** in `sources.csv`.
 
-Then, using the `designatedlands.py` tool, load and process all data and dump the results to geopackage:
+Using the `designatedlands` tool, load and process all data then dump the results to geopackage:
 
 ```
-$ python designatedlands.py create_db
-$ python designatedlands.py load --email myemail@email.bc.ca
-$ python designatedlands.py process
-$ python designatedlands.py dump
+$ designatedlands.py create_db
+$ designatedlands.py load
+$ designatedlands.py process
+$ designatedlands.py dump
 ```
 
 See the `--help` for more options:
@@ -92,7 +90,6 @@ Options:
 Commands:
   create_db       Create a fresh database
   dump            Dump output designatedlands table to file
-  dump_aggregate  Unsupported
   load            Download data, load to postgres
   overlay         Intersect layer with designatedlands
   process         Create output designatedlands tables
@@ -101,18 +98,12 @@ Commands:
 For help regarding an individual command:
 ```
 $ python designatedlands.py load --help
-Usage: designatedlands.py load [OPTIONS]
 
-  Download data, load to postgres
 
-Options:
-  -s, --source_csv PATH  Path to csv that lists all input data sources
-  --email TEXT           A valid email address, used for DataBC downloads
-  --dl_path PATH         Path to folder holding downloaded data
-  -a, --alias TEXT       The 'alias' key identifing the source of interest,
-                         from source csv
-  --force_download TEXT  Force fresh download
-  --help                 Show this message and exit.
+
+
+
+
 ```
 
 
@@ -126,7 +117,6 @@ Usage: designatedlands.py overlay [OPTIONS] IN_FILE
   Intersect layer with designatedlands
 
 Options:
-  -dl, --dl_table TEXT         Name of output designated lands table
   -l, --in_layer TEXT          Input layer name
   --dump_file                  Dump to file (as specified by out_file and
                                out_format)
@@ -189,5 +179,7 @@ The file `sources.csv` defines all source layers and how they are processed. Edi
     WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
     See the License for the specific language governing permissions and
     limitations under the License.
+
+## License
 
 This repository is maintained by [Environmental Reporting BC](http://www2.gov.bc.ca/gov/content?id=FF80E0B985F245CEA62808414D78C41B). Click [here](https://github.com/bcgov/EnvReportBC-RepoList) for a complete list of our repositories on GitHub.
