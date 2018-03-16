@@ -28,6 +28,7 @@ def create_db(config):
     """Create a fresh database
     """
     config = util.read_config(config)
+    util.log('Creating database %s' % config['db_url'], config=config)
     pgdata.create_db(config["db_url"])
     db = pgdata.connect(config["db_url"])
     db.execute("CREATE EXTENSION IF NOT EXISTS postgis")
@@ -37,8 +38,10 @@ def create_db(config):
     if os.name == 'posix':
         db.execute("CREATE EXTENSION IF NOT EXISTS lostgis")
     else:
-        info('Remember to add required lostgis functions to your new database')
-        info('See scripts\lostgis_windows.bat as a guide')
+        util.log('Remember to add required lostgis functions to your new database',
+                 config=config, level=30)
+        util.log('See scripts\lostgis_windows.bat as a guide',
+                 config=config, level=30)
 
 
 @cli.command()
@@ -135,8 +138,7 @@ def load(config, alias, force_download):
               help="Force re-preprocessing of input data")
 @click.option('--tiles', default=None,
               help="Comma separated list of tiles to process")
-def process(config, resume, force_preprocess, n_processes,
-            tiles):
+def process(config, resume, force_preprocess, tiles):
     """Create output designatedlands tables
     """
     config = util.read_config(config)
