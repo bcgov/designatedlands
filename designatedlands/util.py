@@ -1,30 +1,12 @@
-import configparser
+
 import csv
 import datetime
 import logging
-import multiprocessing
 import os
 import sys
 import unicodedata
 
-
-def read_config(config_file):
-    """Load and read provided configuration file
-    """
-    config = configparser.ConfigParser()
-    config.read(config_file)
-    config_dict = config['designatedlands']
-    # make sure output table is lowercase to avoid quoting
-    config_dict['out_table'] = config_dict['out_table'].lower()
-    if config_dict['n_processes'] == '-1':
-        config_dict['n_processes'] = str(multiprocessing.cpu_count() - 1)
-    if 'email' not in config_dict.keys():
-        if os.environ["BCDATA_EMAIL"]:
-            config_dict['email'] = os.environ["BCDATA_EMAIL"]
-        else:
-            raise ValueError('Provide an email in .cfg or set BCDATA_EMAIL')
-    return config_dict
-
+from designatedlands.config import config
 
 def read_csv(path):
     """
@@ -64,7 +46,7 @@ def make_sure_path_exists(path):
         pass
 
 
-def log(message, config, level=None, name=None, filename=None):
+def log(message, level=None, name=None, filename=None):
     """
     Write a message to the log file and/or print to the the console.
     https://github.com/gboeing/osmnx/blob/master/osmnx/utils.py
@@ -143,7 +125,8 @@ def get_logger(level, name, filename, folder):
 
         # get today's date and construct a log filename
         todays_date = datetime.datetime.today().strftime('%Y_%m_%d')
-        log_filename = os.path.join(folder, '{}_{}.log'.format(filename, todays_date))
+        log_filename = os.path.join(
+            folder, '{}_{}.log'.format(filename, todays_date))
 
         # if the logs folder does not already exist, create it
         make_sure_path_exists(folder)

@@ -13,6 +13,7 @@ import fiona
 import bcdata
 
 from designatedlands import util
+from designatedlands.config import config
 
 CHUNK_SIZE = 1024
 
@@ -44,7 +45,7 @@ def download_bcgw(url, dl_path, email, gdb=None, layer=None):
     """
     # get just the package name from the url
     package = os.path.split(urlparse(url).path)[1]
-
+    util.log('Downloading %s' % package)
     download = bcdata.download(package, email)
     if not download:
         raise Exception("Failed to create DWDS order")
@@ -84,12 +85,12 @@ def download_non_bcgw(url, dl_path, alias, source_filename, source_layer,
             download_cache,
             hashlib.sha224(url.encode('utf-8')).hexdigest())
         if os.path.exists(cache_path):
-            info("Returning %s from local cache at %s" % (url, cache_path))
+            util.log("Returning %s from local cache at %s" % (url, cache_path))
             fp.close()
             shutil.copy(cache_path, fp.name)
             return fp
 
-    info('Downloading', url)
+    util.log('Downloading '+ url)
     if parsed_url.scheme == "http" or parsed_url.scheme == "https":
         res = requests.get(url, stream=True, verify=False)
 
@@ -100,14 +101,12 @@ def download_non_bcgw(url, dl_path, alias, source_filename, source_layer,
             fp.write(chunk)
     elif parsed_url.scheme == "ftp":
         download = urllib.request.urlopen(url)
-
         file_size_dl = 0
         block_sz = 8192
         while True:
             buffer = download.read(block_sz)
             if not buffer:
                 break
-
             file_size_dl += len(buffer)
             fp.write(buffer)
 
@@ -134,9 +133,8 @@ def extract(fp, dl_path, alias, source_filename):
     (this presumes that we already know the name of the desired file)
     Modified from https://github.com/OpenBounds/Processing/blob/master/utils.py
     """
-    info('Extracting', fp.name)
     unzip_dir = util.make_sure_path_exists(os.path.join(dl_path, alias))
-    info(unzip_dir)
+    util.log('Extracting %s to %s' % (fp.name, unzip_dir))
     zipped_file = get_compressed_file_wrapper(fp.name)
     zipped_file.extractall(unzip_dir)
     zipped_file.close()

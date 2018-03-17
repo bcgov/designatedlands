@@ -9,10 +9,11 @@ import pgdata
 
 from designatedlands import download
 from designatedlands import util
+from designatedlands.config import config
 
 HELP = {
     "cfg": 'Path to designatedlands config file',
-    "alias": "The 'alias' key for the source of interest, from source csv",
+    "alias": "The 'alias' key for the source of interest",
     }
 
 
@@ -22,13 +23,10 @@ def cli():
 
 
 @cli.command()
-@click.option('--config', '-c', default="designatedlands.cfg",
-              type=click.Path(exists=True), help=HELP['cfg'])
-def create_db(config):
+def create_db():
     """Create a fresh database
     """
-    config = util.read_config(config)
-    util.log('Creating database %s' % config['db_url'], config=config)
+    util.log('Creating database %s' % config['db_url'])
     pgdata.create_db(config["db_url"])
     db = pgdata.connect(config["db_url"])
     db.execute("CREATE EXTENSION IF NOT EXISTS postgis")
@@ -39,20 +37,17 @@ def create_db(config):
         db.execute("CREATE EXTENSION IF NOT EXISTS lostgis")
     else:
         util.log('Remember to add required lostgis functions to your new database',
-                 config=config, level=30)
+                 level=30)
         util.log('See scripts\lostgis_windows.bat as a guide',
-                 config=config, level=30)
+                 level=30)
 
 
 @cli.command()
-@click.option('--config', '-c', default="designatedlands.cfg",
-              type=click.Path(exists=True), help=HELP['cfg'])
 @click.option('--alias', '-a', help=HELP['alias'])
 @click.option('--force_download', default=False, help='Force fresh download')
-def load(config, alias, force_download):
+def load(alias, force_download):
     """Download data, load to postgres
     """
-    config = util.read_config(config)
     db = pgdata.connect(config["db_url"])
     sources = util.read_csv(config["source_csv"])
 
@@ -69,8 +64,9 @@ def load(config, alias, force_download):
         if urlparse(source["url"]).hostname == 'catalogue.data.gov.bc.ca':
             gdb = source["layer_in_file"].split(".")[1].strip() + ".gdb"
             file = os.path.join(config["dl_path"], gdb)
+            layer = download.get_layer_name(file, source["layer_in_file"])
             # download only if layer is not already there or if forced
-            if not os.path.exists(file) and not force_download:
+            if not os.path.exists(file) or force_download:
                 file, layer = download.download_bcgw(
                     source["url"],
                     config["dl_path"],
@@ -84,7 +80,10 @@ def load(config, alias, force_download):
                 os.path.join(config['dl_path'],
                              source["alias"])):
                 file = os.path.join(
-                    config['dl_path'], source["alias"], source['file_in_url'])
+                    config['dl_path'],
+                    source["alias"],
+                    source['file_in_url'])
+                layer = download.get_layer_name(file, source["layer_in_file"])
             else:
                 download_cache = os.path.join(
                     tempfile.gettempdir(),
@@ -119,19 +118,18 @@ def load(config, alias, force_download):
                       cmd_only=True))
 
     # run all ogr commands in parallel
-    info('loading data to postgres...')
+    util.log('Loading source data to database.')
     # https://stackoverflow.com/questions/14533458/python-threading-multiple-bash-subprocesses
     processes = [subprocess.Popen(cmd, shell=True) for cmd in load_commands]
     for p in processes:
         p.wait()
 
     # create tiles layer
+    util.log('Creating tiles layer')
     db.execute(db.queries["create_tiles"])
 
 
 @cli.command()
-@click.option('--config', '-c', default="designatedlands.cfg",
-              type=click.Path(exists=True), help=HELP['cfg'])
 @click.option('--resume', '-r',
               help='hierarchy number at which to resume processing')
 @click.option('--force_preprocess', is_flag=True, default=False,
@@ -245,8 +243,6 @@ def process(config, resume, force_preprocess, tiles):
 
 
 @cli.command()
-@click.option('--config', '-c', default="designatedlands.cfg",
-              type=click.Path(exists=True), help=HELP['cfg'])
 @click.argument('in_file', type=click.Path(exists=True))
 @click.option('--in_layer', '-l', help="Input layer name")
 @click.option('--dump_file', is_flag=True, default=False,
@@ -283,8 +279,6 @@ def overlay(config, in_file, in_layer, dump_file, new_layer_name):
 
 
 @cli.command()
-@click.option('--config', '-c', default="designatedlands.cfg",
-              type=click.Path(exists=True), help=HELP['cfg'])
 def dump(config):
     """Dump output designatedlands table to file
     """
@@ -305,8 +299,6 @@ def dump(config):
 
 
 @cli.command()
-@click.option('--config', '-c', default="designatedlands.cfg",
-              type=click.Path(exists=True), help=HELP['cfg'])
 def run_all(config):
     """ Run complete designated lands job
     """
