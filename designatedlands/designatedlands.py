@@ -77,7 +77,7 @@ def clip(db, in_table, clip_table, out_table):
                      columns=", ".join(columns),
                      in_table=in_table,
                      clip_table=clip_table)
-    info('Clipping %s by %s to create %s' % (in_table, clip_table, out_table))
+    util.log('Clipping %s by %s to create %s' % (in_table, clip_table, out_table))
     db.execute(sql)
 
 
@@ -102,7 +102,7 @@ def tile_sources(db, source_csv, alias=None, force=False):
                     and s['hierarchy'] != 0]
     for source in tile_sources:
         if source["tiled_table"] not in db.tables or force:
-            info("Tiling and validating: %s" % source["alias"])
+            util.log("Tiling and validating: %s" % source["alias"])
             db[source["tiled_table"]].drop()
             lookup = {"out_table": source["tiled_table"],
                       "src_table": source["input_table"],
@@ -130,7 +130,7 @@ def clean_and_agg_sources(db, source_csv, alias=None, force=False):
                      if s["exclude"] != 'T' and s['hierarchy'] != 0]
     for source in clean_sources:
         if source["cleaned_table"] not in db.tables or force:
-            info("Cleaning and aggregating: %s" % source["alias"])
+            util.log("Cleaning and aggregating: %s" % source["alias"])
             db[source["cleaned_table"]].drop()
             lookup = {"out_table": source["cleaned_table"],
                       "src_table": source["tiled_table"]}
@@ -152,7 +152,7 @@ def preprocess(db, source_csv, alias=None, force=False):
                           if s["preprocess_operation"] != '']
     for source in preprocess_sources:
         if source["input_table"]+"_preprc" not in db.tables or force:
-            info("Preprocessing: %s" % source["alias"])
+            util.log("Preprocessing: %s" % source["alias"])
             # find name of the pre-process layer to be used
             preprocess_lyr = [s for s in sources
                               if s["alias"] ==
@@ -163,7 +163,7 @@ def preprocess(db, source_csv, alias=None, force=False):
             input_prefix = source["input_table"][0]
             function = source["preprocess_operation"]
             # call the specified preprocess function
-            info(source["input_table"])
+            util.log(source["input_table"])
             globals()[function](db,
                                 source["input_table"],
                                 input_prefix+"00_" + preprocess_lyr["alias"],
@@ -206,7 +206,7 @@ def create_bc_boundary(db, n_processes):
                    GROUP BY designation""")
 
     for source in ["a00_bc_boundary_land", "a00_bc_boundary_marine"]:
-        info('Prepping and inserting into bc_boundary: %s' % source)
+        util.log('Prepping and inserting into bc_boundary: %s' % source)
         # subdivide before attempting to tile
         db["temp_"+source].drop()
         db.execute("""CREATE UNLOGGED TABLE temp_{t} AS
@@ -256,7 +256,7 @@ def intersect(db, in_table, intersect_table, out_table, n_processes,
     # test for non-unique columns in input (other than map_tile and geom)
     non_unique_columns = in_names.intersection(intersect_names)
     if non_unique_columns:
-        info('Column(s) found in both sources: %s' %
+        util.log('Column(s) found in both sources: %s' %
              ",".join(non_unique_columns))
         raise Exception("Input column names must be unique")
     # create output table
@@ -366,7 +366,7 @@ def dump_aggregate(config, new_layer_name):
     """
     config = util.read_config(config)
     db = pgdata.connect(config["db_url"], schema="public")
-    info('Aggregating %s to %s' % (config['out_table'], new_layer_name))
+    util.log('Aggregating %s to %s' % (config['out_table'], new_layer_name))
     # find all non-null designations
     designations = [d for d in
                     db[config['out_table']].distinct('designation') if d]
@@ -379,7 +379,7 @@ def dump_aggregate(config, new_layer_name):
     db.execute(sql)
     # iterate through designations to speed up the aggregation
     for designation in designations:
-        info('Adding %s to %s' % (designation, new_layer_name))
+        util.log('Adding %s to %s' % (designation, new_layer_name))
         # dump records entirely within a tile
         sql = """
         INSERT INTO {new_layer_name} (designation, category, bc_boundary, geom)
@@ -427,6 +427,6 @@ def dump_aggregate(config, new_layer_name):
         """.format(t=config['out_table'],
                    new_layer_name=new_layer_name)
         db.execute(sql, (designation,))
-    info('Dumping %s to file %s', (new_layer_name, config['out_file']))
+    util.log('Dumping %s to file %s', (new_layer_name, config['out_file']))
     db.pg2ogr("SELECT * from "+new_layer_name, config['out_format'],
               config['out_file'], new_layer_name)

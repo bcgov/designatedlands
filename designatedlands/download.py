@@ -13,13 +13,12 @@ import fiona
 import bcdata
 
 from designatedlands import util
-from designatedlands.config import config
 
 CHUNK_SIZE = 1024
 
 
 def get_layer_name(file, layer_name):
-    """ Find the layer in the file source that best matches provided layer_name
+    """Find the layer in the file source that best matches provided layer_name
     """
     layers = fiona.listlayers(file)
     # replace the . with _ in WHSE objects

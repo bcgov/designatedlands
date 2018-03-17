@@ -169,14 +169,15 @@ def process(config, resume, force_preprocess, tiles):
                                   {"table": out_table}))
 
     # filter sources - use only non-exlcuded sources with hierarchy > 0
-    sources = [s for s in read_csv(config['source_csv'])
+    sources = [s for s in util.read_csv(config['source_csv'])
                if s['hierarchy'] != 0 and s["exclude"] != 'T']
 
     # To create output table with overlaps, combine all source data
     # (tiles argument does not apply, we could build a tile query string but
     # it seems unnecessary)
     for source in sources:
-        info("Inserting %s into preliminary output overlap table" % source["tiled_table"])
+        util.log("Inserting %s into preliminary output overlap table"
+                 % source["tiled_table"])
         sql = db.build_query(db.queries["populate_output_overlaps"],
                              {"in_table": source["tiled_table"],
                               "out_table": out_table+"_overlaps"})
@@ -216,12 +217,12 @@ def process(config, resume, force_preprocess, tiles):
             tiles = src_tiles
 
         if tiles:
-            info("Inserting %s into preliminary output table" % source["cleaned_table"])
+            util.log("Inserting %s into preliminary output table" % source["cleaned_table"])
 
             # for testing, run only one process and report on tile
             if n_processes == 1:
                 for tile in tiles:
-                    info(tile)
+                    util.log(tile)
                     db.execute(sql, (tile + "%", ) * 2)
             else:
                 func = partial(parallel_tiled, db.url, sql, n_subs=2)
@@ -234,7 +235,7 @@ def process(config, resume, force_preprocess, tiles):
     if 'bc_boundary' not in db.tables:
         create_bc_boundary(db, n_processes)
 
-    info('Cutting %s with marine-terrestrial definition' % out_table)
+    util.log('Cutting %s with marine-terrestrial definition' % out_table)
     intersect(db, out_table+"_prelim", "bc_boundary", out_table, n_processes,
               tiles)
 
@@ -268,13 +269,13 @@ def overlay(config, in_file, in_layer, dump_file, new_layer_name):
 
     # uncomment and adjust for debugging a specific tile
     # tiles = [t for t in tiles if t[:4] == '092K']
-    info("Intersecting %s with %s" % (config['out_table'], new_layer_name))
+    util.log("Intersecting %s with %s" % (config['out_table'], new_layer_name))
     intersect(db, config['out_table'], new_layer_name, out_layer,
               config['n_processes'], tiles)
 
     # dump result to file
     if dump_file:
-        info("Dumping intersect to file %s " % config['out_file'])
+        util.log("Dumping intersect to file %s " % config['out_file'])
         dump(out_layer, config['out_file'], config['out_format'])
 
 
@@ -284,7 +285,7 @@ def dump(config):
     """
     config = util.read_config(config)
     db = pgdata.connect(config["db_url"], schema="public")
-    info('Dumping %s to %s' % (config['out_table'], config['out_file']))
+    util.log('Dumping %s to %s' % (config['out_table'], config['out_file']))
     columns = [c for c in db[config['out_table']].columns if c != 'geom']
     ogr_sql = """SELECT {cols},
                   st_snaptogrid(geom, .001) as geom
@@ -292,7 +293,7 @@ def dump(config):
                 WHERE designation IS NOT NULL
              """.format(cols=",".join(columns),
                         t=config['out_table'])
-    info(ogr_sql)
+    util.log(ogr_sql)
     db = pgdata.connect(config["db_url"])
     db.pg2ogr(ogr_sql, config['out_format'], config['out_file'],
               config['out_table'], geom_type="MULTIPOLYGON")

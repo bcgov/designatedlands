@@ -8,6 +8,7 @@ import unicodedata
 
 from designatedlands.config import config
 
+
 def read_csv(path):
     """
     Load input csv file and return a list of dicts.
@@ -105,6 +106,7 @@ def log(message, level=None, name=None, filename=None):
 def get_logger(level, name, filename, folder):
     """
     Create a logger or return the current one if already instantiated.
+    https://github.com/gboeing/osmnx/blob/master/osmnx/utils.py
     Parameters
     ----------
     level : int
