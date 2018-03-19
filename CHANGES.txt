@@ -7,6 +7,7 @@ All issue numbers are relative to https://github.com/bcgov/designatedlands/issue
 ------------------
 - change category for Forest Rec Sites (#50)
 - enable pre-processing of BC Parks to remove duplicate records (#48)
+- add --overlaps option to dump command for dumping raw layer to file, retaining overlaps, source id, source name (#26)
 - make preprocess function more versatile by adding preprocess_args to sources.csv
 - general tidy/refactor of code (#39)
 - add setup.py and associated files to support distribution as a Python module (#39)

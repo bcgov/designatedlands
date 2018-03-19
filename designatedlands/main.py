@@ -332,10 +332,17 @@ def overlay(in_file, in_layer, dump_file, new_layer_name):
 
 
 @cli.command()
-def dump(config):
+@click.option(
+    '--overlaps',
+    is_flag=True,
+    default=False,
+    help="Dump output _overlaps table to file",
+)
+def dump(overlaps):
     """Dump output designatedlands table to file
     """
-    config = util.read_config(config)
+    if overlaps:
+        config['out_table'] = config['out_table'] + '_overlaps'
     db = pgdata.connect(config["db_url"], schema="public")
     util.log('Dumping %s to %s' % (config['out_table'], config['out_file']))
     columns = [c for c in db[config['out_table']].columns if c != 'geom']
