@@ -40,6 +40,6 @@ setup(name='designatedlands',
         'test': ['pytest', 'coverage']},
       entry_points="""
       [console_scripts]
-      designatedlands=designatedlands.cli:cli
+      designatedlands=designatedlands.main:cli
       """
       )
