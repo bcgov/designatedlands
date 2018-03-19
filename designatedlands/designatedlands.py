@@ -11,7 +11,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
 import logging
 import multiprocessing
 from functools import partial
@@ -25,7 +24,6 @@ import pgdata
 
 from designatedlands import util
 
-
 logging.basicConfig(level=logging.INFO)
 
 
@@ -36,8 +34,9 @@ def get_tiles(db, table, tile_table="a00_tiles_250k"):
              FROM {table} a
              INNER JOIN {tile_table} b ON st_intersects(b.geom, a.geom)
              ORDER BY map_tile
-          """.format(table=table,
-                     tile_table=tile_table)
+          """.format(
+        table=table, tile_table=tile_table
+    )
     return [r[0] for r in db.query(sql)]
 
 
@@ -53,14 +52,14 @@ def parallel_tiled(db_url, sql, tile, n_subs=2):
     # and manage parallel execution of these queries within these connections.
     # Turn off this connection's parallel execution:
     db.execute("SET max_parallel_workers_per_gather = 0")
-    db.execute(sql, (tile+"%",) * n_subs)
+    db.execute(sql, (tile + "%",) * n_subs)
 
 
 def clip(db, in_table, clip_table, out_table):
     """
     Clip geometry of in_table by clip_table, writing output to out_table
     """
-    columns = ["a."+c for c in db[in_table].columns if c != 'geom']
+    columns = ["a." + c for c in db[in_table].columns if c != 'geom']
     db[out_table].drop()
     sql = """CREATE UNLOGGED TABLE {temp} AS
              SELECT
@@ -73,11 +72,15 @@ def clip(db, in_table, clip_table, out_table):
              FROM {in_table} AS a
              INNER JOIN {clip_table} AS b
              ON ST_Intersects(a.geom, b.geom)
-          """.format(temp=out_table,
-                     columns=", ".join(columns),
-                     in_table=in_table,
-                     clip_table=clip_table)
-    util.log('Clipping %s by %s to create %s' % (in_table, clip_table, out_table))
+          """.format(
+        temp=out_table,
+        columns=", ".join(columns),
+        in_table=in_table,
+        clip_table=clip_table,
+    )
+    util.log(
+        'Clipping %s by %s to create %s' % (in_table, clip_table, out_table)
+    )
     db.execute(sql)
 
 
@@ -98,16 +101,19 @@ def tile_sources(db, source_csv, alias=None, force=False):
     #     - designation (equivalent to source's alias in sources.csv)
     #     - designation_id (unique id of source feature)
     #     - designation_name (name of source feature)
-    tile_sources = [s for s in sources if s["exclude"] != 'T'
-                    and s['hierarchy'] != 0]
+    tile_sources = [
+        s for s in sources if s["exclude"] != 'T' and s['hierarchy'] != 0
+    ]
     for source in tile_sources:
         if source["tiled_table"] not in db.tables or force:
             util.log("Tiling and validating: %s" % source["alias"])
             db[source["tiled_table"]].drop()
-            lookup = {"out_table": source["tiled_table"],
-                      "src_table": source["input_table"],
-                      "designation_id_col": source["designation_id_col"],
-                      "designation_name_col": source["designation_name_col"]}
+            lookup = {
+                "out_table": source["tiled_table"],
+                "src_table": source["input_table"],
+                "designation_id_col": source["designation_id_col"],
+                "designation_name_col": source["designation_name_col"],
+            }
             sql = db.build_query(db.queries["prep1_merge_tile_a"], lookup)
             db.execute(sql)
 
@@ -126,14 +132,17 @@ def clean_and_agg_sources(db, source_csv, alias=None, force=False):
     # for all designated lands sources:
     # - create new table name prefixed with c_<hierarchy>
     # - aggregate by designation, tile
-    clean_sources = [s for s in sources
-                     if s["exclude"] != 'T' and s['hierarchy'] != 0]
+    clean_sources = [
+        s for s in sources if s["exclude"] != 'T' and s['hierarchy'] != 0
+    ]
     for source in clean_sources:
         if source["cleaned_table"] not in db.tables or force:
             util.log("Cleaning and aggregating: %s" % source["alias"])
             db[source["cleaned_table"]].drop()
-            lookup = {"out_table": source["cleaned_table"],
-                      "src_table": source["tiled_table"]}
+            lookup = {
+                "out_table": source["cleaned_table"],
+                "src_table": source["tiled_table"],
+            }
             sql = db.build_query(db.queries["prep2_clean_agg"], lookup)
             db.execute(sql)
 
@@ -142,21 +151,24 @@ def preprocess(db, source_csv, alias=None, force=False):
     """ Preprocess (eg clip) sources as specified in source_csv
     """
     sources = util.read_csv(source_csv)
-
     # process only the source layer specified
     if alias:
         sources = [s for s in sources if s['alias'] == alias]
-
     # apply pre-processing operation specified in sources.csv (eg clip)
-    preprocess_sources = [s for s in sources
-                          if s["preprocess_operation"] != '']
+    preprocess_sources = [
+        s for s in sources if s["preprocess_operation"] != ''
+    ]
     for source in preprocess_sources:
-        if source["input_table"]+"_preprc" not in db.tables or force:
+        if source["input_table"] + "_preprc" not in db.tables or force:
             util.log("Preprocessing: %s" % source["alias"])
             # find name of the pre-process layer to be used
-            preprocess_lyr = [s for s in sources
-                              if s["alias"] ==
-                              source["preprocess_layer_alias"]][0]
+            preprocess_lyr = [
+                s
+                for s in sources
+                if s["alias"] == source["preprocess_layer_alias"]
+            ][
+                0
+            ]
             # find the one character prefix used to designate input layers
             # (preprocessing only works with raw inputs, nothing tiled or
             # cleaned)
@@ -164,17 +176,21 @@ def preprocess(db, source_csv, alias=None, force=False):
             function = source["preprocess_operation"]
             # call the specified preprocess function
             util.log(source["input_table"])
-            globals()[function](db,
-                                source["input_table"],
-                                input_prefix+"00_" + preprocess_lyr["alias"],
-                                source["input_table"] + "_preprc")
+            globals()[function](
+                db,
+                source["input_table"],
+                input_prefix + "00_" + preprocess_lyr["alias"],
+                source["input_table"] + "_preprc",
+            )
             # overwrite the tiled table with the preprocessed table, but
             # retain the _preprc table as a flag that the job is done
             db[source["input_table"]].drop()
-            db.execute("""CREATE TABLE {t} AS
-                          SELECT * FROM {temp}
-                       """.format(t=source["input_table"],
-                                  temp=source["input_table"] + "_preprc"))
+            db.execute(
+                """CREATE TABLE {t} AS
+                   SELECT * FROM {temp}
+                """.format(t=source["input_table"],
+                           temp=source["input_table"] + "_preprc")
+            )
             # re-create spatial index
             db[source["input_table"]].create_index_geom()
 
@@ -190,11 +206,11 @@ def create_bc_boundary(db, n_processes):
     """
     # create land/marine definition table
     db.execute(db.queries['create_bc_boundary'])
-
     # Prep boundary sources
     # First, combine ABMS boundary and marine ecosections
     db["bc_boundary_marine"].drop()
-    db.execute("""CREATE TABLE a00_bc_boundary_marine AS
+    db.execute(
+        """CREATE TABLE a00_bc_boundary_marine AS
                   SELECT
                     'bc_boundary_marine' as designation,
                      ST_Union(geom) as geom FROM
@@ -203,141 +219,174 @@ def create_bc_boundary(db, n_processes):
                        UNION ALL
                        SELECT st_union(geom) as geom
                        FROM a00_marine_ecosections) as foo
-                   GROUP BY designation""")
-
+                   GROUP BY designation"""
+    )
     for source in ["a00_bc_boundary_land", "a00_bc_boundary_marine"]:
         util.log('Prepping and inserting into bc_boundary: %s' % source)
         # subdivide before attempting to tile
-        db["temp_"+source].drop()
-        db.execute("""CREATE UNLOGGED TABLE temp_{t} AS
+        db["temp_" + source].drop()
+        db.execute(
+            """CREATE UNLOGGED TABLE temp_{t} AS
                       SELECT ST_Subdivide(geom) as geom
-                      FROM {t}""".format(t=source))
-        db["temp_"+source].create_index_geom()
+                      FROM {t}""".format(t=source)
+        )
+        db["temp_" + source].create_index_geom()
         # tile
-        db[source+"_tiled"].drop()
-        lookup = {"src_table": "temp_"+source,
-                  "out_table": source+"_tiled"}
+        db[source + "_tiled"].drop()
+        lookup = {
+            "src_table": "temp_" + source, "out_table": source + "_tiled"
+        }
         db.execute(db.build_query(db.queries["prep1_merge_tile_b"], lookup))
-        db["temp_"+source].drop()
-
+        db["temp_" + source].drop()
         # combine the boundary layers into new table bc_boundary
-        sql = db.build_query(db.queries["populate_output"],
-                             {"in_table": source+"_tiled",
-                              "out_table": "bc_boundary"})
-        tiles = get_tiles(db, source+"_tiled")
+        sql = db.build_query(
+            db.queries["populate_output"],
+            {"in_table": source + "_tiled", "out_table": "bc_boundary"},
+        )
+        tiles = get_tiles(db, source + "_tiled")
         func = partial(parallel_tiled, db.url, sql)
         pool = multiprocessing.Pool(processes=n_processes)
         pool.map(func, tiles)
         pool.close()
         pool.join()
-
     # rename the 'designation' column
-    db.execute("""ALTER TABLE bc_boundary
-                  RENAME COLUMN designation TO bc_boundary""")
+    db.execute(
+        """ALTER TABLE bc_boundary
+                  RENAME COLUMN designation TO bc_boundary"""
+    )
 
 
-def intersect(db, in_table, intersect_table, out_table, n_processes,
-              tiles=None):
+def intersect(
+    db, in_table, intersect_table, out_table, n_processes, tiles=None
+):
     """
     Intersect in_table with intersect_table, creating out_table
     Inputs may not have equivalently named columns
     """
     # examine the inputs to determine what columns should be in the output
     in_columns = [Column(c.name, c.type) for c in db[in_table].sqla_columns]
-    intersect_columns = [Column(c.name, c.type)
-                         for c in db[intersect_table].sqla_columns
-                         if c.name not in ['geom', 'map_tile']]
+    intersect_columns = [
+        Column(c.name, c.type)
+        for c in db[intersect_table].sqla_columns
+        if c.name not in ['geom', 'map_tile']
+    ]
     # make sure output column names are unique, removing geom and map_tile from
     # the list as they are hard coded into the query
-    in_names = set([c.name for c in in_columns
-                    if c.name != 'geom' and c.name != 'map_tile'])
+    in_names = set(
+        [
+            c.name
+            for c in in_columns
+            if c.name != 'geom' and c.name != 'map_tile'
+        ]
+    )
     intersect_names = set([c.name for c in intersect_columns])
-
     # test for non-unique columns in input (other than map_tile and geom)
     non_unique_columns = in_names.intersection(intersect_names)
     if non_unique_columns:
-        util.log('Column(s) found in both sources: %s' %
-             ",".join(non_unique_columns))
+        util.log(
+            'Column(s) found in both sources: %s' %
+            ",".join(non_unique_columns)
+        )
         raise Exception("Input column names must be unique")
+
     # create output table
     db[out_table].drop()
     # add primary key
-    pk = Column(out_table+"_id", Integer, primary_key=True)
-    pgdata.Table(db, "public", out_table, [pk]+in_columns+intersect_columns)
+    pk = Column(out_table + "_id", Integer, primary_key=True)
+    pgdata.Table(
+        db, "public", out_table, [pk] + in_columns + intersect_columns
+    )
     # populate the output table
     if 'map_tile' not in [c.name for c in db[intersect_table].sqla_columns]:
         query = "intersect_inputtiled"
         tile_table = "tiles"
-        sql = db.build_query(db.queries[query],
-                             {"in_table": in_table,
-                              "in_columns": ", ".join(in_names),
-                              "intersect_table": intersect_table,
-                              "intersect_columns": ", ".join(intersect_names),
-                              "out_table": out_table,
-                              "tile_table": tile_table})
+        sql = db.build_query(
+            db.queries[query],
+            {
+                "in_table": in_table,
+                "in_columns": ", ".join(in_names),
+                "intersect_table": intersect_table,
+                "intersect_columns": ", ".join(intersect_names),
+                "out_table": out_table,
+                "tile_table": tile_table,
+            },
+        )
     else:
         query = "intersect_alltiled"
         tile_table = None
-        sql = db.build_query(db.queries[query],
-                             {"in_table": in_table,
-                              "in_columns": ", ".join(in_names),
-                              "intersect_table": intersect_table,
-                              "intersect_columns": ", ".join(intersect_names),
-                              "out_table": out_table})
+        sql = db.build_query(
+            db.queries[query],
+            {
+                "in_table": in_table,
+                "in_columns": ", ".join(in_names),
+                "intersect_table": intersect_table,
+                "intersect_columns": ", ".join(intersect_names),
+                "out_table": out_table,
+            },
+        )
     if not tiles:
         tiles = get_tiles(db, intersect_table, "tiles")
     func = partial(parallel_tiled, db.url, sql)
     pool = multiprocessing.Pool(processes=n_processes)
-
     # add a progress bar
     results_iter = pool.imap_unordered(func, tiles)
     with click.progressbar(results_iter, length=len(tiles)) as bar:
         for _ in bar:
             pass
-
     # pool.map(func, tiles)
     pool.close()
     pool.join()
     # delete any records with empty geometries in the out table
-    db.execute("""DELETE FROM {t} WHERE ST_IsEmpty(geom) = True
-               """.format(t=out_table))
+    db.execute(
+        """DELETE FROM {t} WHERE ST_IsEmpty(geom) = True
+               """.format(t=out_table)
+    )
     # add map_tile index to output
-    db.execute("""CREATE INDEX {t}_tileix
+    db.execute(
+        """CREATE INDEX {t}_tileix
                   ON {t} (map_tile text_pattern_ops)
-               """.format(t=out_table))
+               """.format(t=out_table)
+    )
 
 
 def tidy_designations(db, sources, designation_key, out_table):
     """Add and populate 'category' column, tidy the national park designations
     """
     # add category (rollup) column by creating lookup table from source.csv
-    lookup_data = [dict(alias=s[designation_key],
-                        category=s["category"])
-                   for s in sources if s["category"]]
+    lookup_data = [
+        dict(alias=s[designation_key], category=s["category"])
+        for s in sources
+        if s["category"]
+    ]
     # create lookup table
     db["category_lookup"].drop()
-    db.execute("""CREATE TABLE category_lookup
-                  (id SERIAL PRIMARY KEY, alias TEXT, category TEXT)""")
+    db.execute(
+        """CREATE TABLE category_lookup
+                  (id SERIAL PRIMARY KEY, alias TEXT, category TEXT)"""
+    )
     db["category_lookup"].insert(lookup_data)
-
     # add category column
     if "category" not in db[out_table].columns:
-        db.execute("""ALTER TABLE {t}
+        db.execute(
+            """ALTER TABLE {t}
                       ADD COLUMN category TEXT
-                   """.format(t=out_table))
-
+                   """.format(t=out_table)
+        )
     # populate category column from lookup
-    db.execute("""UPDATE {t} AS o
+    db.execute(
+        """UPDATE {t} AS o
                   SET category = lut.category
                   FROM category_lookup AS lut
                   WHERE o.designation = lut.alias
-               """.format(t=out_table))
-
+               """.format(t=out_table)
+    )
     # Remove national park names from the national park tags
     sql = """UPDATE {t}
              SET designation = 'c01_park_national'
              WHERE designation LIKE 'c01_park_national%%'
-          """.format(t=out_table)
+          """.format(
+        t=out_table
+    )
     db.execute(sql)
 
 
@@ -368,14 +417,16 @@ def dump_aggregate(config, new_layer_name):
     db = pgdata.connect(config["db_url"], schema="public")
     util.log('Aggregating %s to %s' % (config['out_table'], new_layer_name))
     # find all non-null designations
-    designations = [d for d in
-                    db[config['out_table']].distinct('designation') if d]
+    designations = [
+        d for d in db[config['out_table']].distinct('designation') if d
+    ]
     db[new_layer_name].drop()
     sql = """CREATE TABLE {new_layer_name} AS
              SELECT designation, category, bc_boundary, geom
              FROM {out_table}
-             LIMIT 0""".format(new_layer_name=new_layer_name,
-                               out_table=config['out_table'])
+             LIMIT 0""".format(
+        new_layer_name=new_layer_name, out_table=config['out_table']
+    )
     db.execute(sql)
     # iterate through designations to speed up the aggregation
     for designation in designations:
@@ -392,8 +443,9 @@ def dump_aggregate(config, new_layer_name):
         INNER JOIN tiles ON dl.map_tile = tiles.map_tile
         WHERE dl.designation = %s
         AND ST_Coveredby(dl.geom, ST_Buffer(tiles.geom, -.01))
-        """.format(t=config['out_table'],
-                   new_layer_name=new_layer_name)
+        """.format(
+            t=config['out_table'], new_layer_name=new_layer_name
+        )
         db.execute(sql, (designation,))
         # aggregate cross-tile records
         # Notes:
@@ -424,9 +476,14 @@ def dump_aggregate(config, new_layer_name):
         WHERE dl.designation = %s
         AND NOT ST_Coveredby(dl.geom, ST_Buffer(tiles.geom, -.01))
         GROUP BY dl.designation, dl.category, dl.bc_boundary) as foo
-        """.format(t=config['out_table'],
-                   new_layer_name=new_layer_name)
+        """.format(
+            t=config['out_table'], new_layer_name=new_layer_name
+        )
         db.execute(sql, (designation,))
     util.log('Dumping %s to file %s', (new_layer_name, config['out_file']))
-    db.pg2ogr("SELECT * from "+new_layer_name, config['out_format'],
-              config['out_file'], new_layer_name)
+    db.pg2ogr(
+        "SELECT * from " + new_layer_name,
+        config['out_format'],
+        config['out_file'],
+        new_layer_name,
+    )

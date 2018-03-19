@@ -24,7 +24,6 @@ def get_layer_name(file, layer_name):
     # replace the . with _ in WHSE objects
     if re.match("^WHSE_", layer_name):
         layer_name = re.sub("\\.", "_", layer_name)
-
     if len(layers) > 1:
         if layer_name not in layers:
             # look for  layername_polygon
@@ -32,6 +31,7 @@ def get_layer_name(file, layer_name):
                 layer = layer_name + '_polygon'
             else:
                 raise Exception("cannot find layer name")
+
         else:
             layer = layer_name
     else:
@@ -48,6 +48,7 @@ def download_bcgw(url, dl_path, email, gdb=None, layer=None):
     download = bcdata.download(package, email)
     if not download:
         raise Exception("Failed to create DWDS order")
+
     # move the download to specified dl_path, deleting if it already exists
     if gdb:
         out_gdb = gdb
@@ -56,7 +57,6 @@ def download_bcgw(url, dl_path, email, gdb=None, layer=None):
     if os.path.exists(os.path.join(dl_path, out_gdb)):
         shutil.rmtree(os.path.join(dl_path, out_gdb))
     shutil.copytree(download, os.path.join(dl_path, out_gdb))
-
     if layer:
         layer_name = get_layer_name(os.path.join(dl_path, out_gdb), layer)
     else:
@@ -64,35 +64,31 @@ def download_bcgw(url, dl_path, email, gdb=None, layer=None):
     return (os.path.join(dl_path, out_gdb), layer_name)
 
 
-def download_non_bcgw(url, dl_path, alias, source_filename, source_layer,
-                      download_cache=None):
+def download_non_bcgw(
+    url, dl_path, alias, source_filename, source_layer, download_cache=None
+):
     """
     Download a zipfile to location specified
     Modified from https://github.com/OpenBounds/Processing/blob/master/utils.py
     """
-
     parsed_url = urlparse(url)
-
     urlfile = parsed_url.path.split('/')[-1]
     _, extension = os.path.split(urlfile)
-
     fp = tempfile.NamedTemporaryFile('wb', suffix=extension, delete=False)
-
     cache_path = None
     if download_cache is not None:
         cache_path = os.path.join(
-            download_cache,
-            hashlib.sha224(url.encode('utf-8')).hexdigest())
+            download_cache, hashlib.sha224(url.encode('utf-8')).hexdigest()
+        )
         if os.path.exists(cache_path):
             util.log("Returning %s from local cache at %s" % (url, cache_path))
             fp.close()
             shutil.copy(cache_path, fp.name)
             return fp
 
-    util.log('Downloading '+ url)
+    util.log('Downloading ' + url)
     if parsed_url.scheme == "http" or parsed_url.scheme == "https":
         res = requests.get(url, stream=True, verify=False)
-
         if not res.ok:
             raise IOError
 
@@ -106,19 +102,16 @@ def download_non_bcgw(url, dl_path, alias, source_filename, source_layer,
             buffer = download.read(block_sz)
             if not buffer:
                 break
+
             file_size_dl += len(buffer)
             fp.write(buffer)
-
     fp.close()
-
     if cache_path:
         if not os.path.exists(download_cache):
             os.makedirs(download_cache)
         shutil.copy(fp.name, cache_path)
-
     # extract zipfile (this is the only supported non-bcgw file format)
     out_file = extract(fp, dl_path, alias, source_filename)
-
     if source_layer:
         layer_name = get_layer_name(out_file, source_layer)
     else:
@@ -145,6 +138,7 @@ class ZipCompatibleTarFile(tarfile.TarFile):
     Wrapper around TarFile to make it more compatible with ZipFile
     Modified from https://github.com/OpenBounds/Processing/blob/master/utils.py
     """
+
     def infolist(self):
         members = self.getmembers()
         for m in members:
@@ -161,9 +155,7 @@ def get_compressed_file_wrapper(path):
     ARCHIVE_FORMAT_ZIP = "zip"
     ARCHIVE_FORMAT_TAR_GZ = "tar.gz"
     ARCHIVE_FORMAT_TAR_BZ2 = "tar.bz2"
-
     archive_format = None
-
     if path.endswith(".zip"):
         archive_format = ARCHIVE_FORMAT_ZIP
     elif path.endswith(".tar.gz") or path.endswith(".tgz"):
@@ -181,13 +173,14 @@ def get_compressed_file_wrapper(path):
                 archive_format = ARCHIVE_FORMAT_ZIP
             except:
                 pass
-
     if archive_format is None:
         raise Exception("Unable to determine archive format")
 
     if archive_format == ARCHIVE_FORMAT_ZIP:
         return zipfile.ZipFile(path, 'r')
+
     elif archive_format == ARCHIVE_FORMAT_TAR_GZ:
         return ZipCompatibleTarFile.open(path, 'r:gz')
+
     elif archive_format == ARCHIVE_FORMAT_TAR_BZ2:
         return ZipCompatibleTarFile.open(path, 'r:bz2')
