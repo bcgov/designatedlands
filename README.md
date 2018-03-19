@@ -157,8 +157,8 @@ The file `sources.csv` defines all source layers and how they are processed. Edi
 | **query**                  | A SQL query defining the subset of data of interest from the given file/layer (SQLite dialect)                                                                                         | 
 | **metadata_url**           | URL for metadata reference                                                                                                                                                             | 
 | **info_url**               | Background/info url in addtion to metadata (if available)   | 
-| **preprocess_operation**   | Pre-processing operation to apply to layer (`clip` is the only current supported operation)  | 
-| **preprocess_layer_alias** | `alias` of an additional layer to use in the **preprocess_operation** (for example, to clip a source by the Muskwa-Kechika Management Area boundary, set **preprocess_operation** = `clip` and **preprocess_layer_alias** = `mk_boundary` | 
+| **preprocess_operation**   | Pre-processing operation to apply to layer (`clip` and `union` are the only supported operations)  | 
+| **preprocess_args** | Argument(s) to passs to **preprocess_operation** . `clip` requires a layer to clip by and `union` requires column(s) to aggregate by. For example, to clip a source by the Muskwa-Kechika Management Area boundary, set **preprocess_operation** = `clip` and **preprocess_args** = `mk_boundary` | 
 | **notes**                  | Misc notes related to layer                                                                                                                                                            | 
 | **license**                | The license under which the data is distrubted.
 
