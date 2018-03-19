@@ -6,8 +6,12 @@ All issue numbers are relative to https://github.com/bcgov/designatedlands/issue
 0.1.0 (2018-03-31)
 ------------------
 - change category for Forest Rec Sites (#50)
-- general tidy, code autoformat with [white](https://github.com/kennethreitz/white), add `setup.py` and associated files to support distribution as a Python module (#39)
+- enable pre-processing of BC Parks to remove duplicate records (#48)
+- make preprocess function more versatile by adding preprocess_args to sources.csv
+- general tidy/refactor of code (#39)
+- add setup.py and associated files to support distribution as a Python module (#39)
 - set config via file rather than hard coded defaults modified by cli options (fixes #46)
 - upgrade to Python 3.6 / PostgreSQL 10.2 / PostGIS 2.4 / pgdata 0.0.9 (#41, #51)
 - advise use of mapshaper for aggregating outputs rather than supporting a PostGIS driven function (#37)
+- autoformat code with https://github.com/kennethreitz/white
 
