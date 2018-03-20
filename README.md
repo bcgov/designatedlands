@@ -160,6 +160,34 @@ The file `sources.csv` defines all source layers and how they are processed. Edi
 | **notes**                  | Misc notes related to layer                                                                                                                                                            | 
 | **license**                | The license under which the data is distrubted.
 
+## Aggregate output layers with Mapshaper
+
+As a part of data load, designatedlands dices all inputs into BCGS 1:20,000 map tiles. This speeds up processing significantly by enabling efficient parallel processing and limiting the size/complexity of input geometries. However, very small gaps are created between the tiles and re-aggregating (dissolving) output layers across tiles in PostGIS is error prone. While the gaps do not have any effect on the designated lands stats, they do need to be removed for display. Rather than attempt this in PostGIS, we can aggregate outputs using the topologically enabled `mapshaper` tool:
+
+```
+# mapshaper doesn't read .gpkg, convert output to shapefile 
+# mapshaper only dissolves using one column, retain land/marine designation 
+# by concatenating the designation and bc_boundary fields
+ogr2ogr \
+  designatedlands.shp \
+  -sql "SELECT 
+         designatedlands_id as desig_id, 
+         designation||'; '||bc_boundary as desig, 
+         category, 
+         geom 
+        FROM designatedlands" \
+  designatedlands.gpkg \
+  designatedlands
+
+# clean and dissolve
+mapshaper \
+  designatedlands.shp \
+  -clean snap-interval=0.01 \
+  -dissolve desig \
+  copy-fields=category \
+  -explode \
+  -o dl_clean.shp
+```
 
 
 ## License
