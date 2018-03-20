@@ -73,15 +73,15 @@ If running a new analysis, download data sources specified as **manual downloads
 Using the `designatedlands` tool, load and process all data then dump the results to geopackage:
 
 ```
-$ designatedlands.py create_db
-$ designatedlands.py load
-$ designatedlands.py process
-$ designatedlands.py dump
+$ designatedlands create_db
+$ designatedlands load
+$ designatedlands process
+$ designatedlands dump
 ```
 
 See the `--help` for more options:
 ```
-$ python designatedlands.py --help
+$ designatedlands --help
 Usage: designatedlands.py [OPTIONS] COMMAND [ARGS]...
 
 Options:
@@ -97,13 +97,15 @@ Commands:
 
 For help regarding an individual command:
 ```
-$ python designatedlands.py load --help
+$ designatedlands load --help
+Usage: designatedlands load [OPTIONS]
 
+  Download data, load to postgres
 
-
-
-
-
+Options:
+  -a, --alias TEXT  The 'alias' key for the source of interest
+  --force_download  Force fresh download
+  --help            Show this message and exit.
 ```
 
 
@@ -111,8 +113,8 @@ $ python designatedlands.py load --help
 In addition to creating the output designated lands layer, this tool also provides a mechanism to overlay the results with administration or ecological units of your choice:
 
 ```
-$ python designatedlands.py overlay --help
-Usage: designatedlands.py overlay [OPTIONS] IN_FILE
+$ designatedlands overlay --help
+Usage: designatedlands overlay [OPTIONS] IN_FILE
 
   Intersect layer with designatedlands
 
@@ -120,18 +122,15 @@ Options:
   -l, --in_layer TEXT          Input layer name
   --dump_file                  Dump to file (as specified by out_file and
                                out_format)
-  -o, --out_file TEXT          Output geopackage name
-  -of, --out_format TEXT       Output format. Default GPKG (Geopackage)
-  -nln, --new_layer_name TEXT  Output layer name
-  -p, --n_processes INTEGER    Number of parallel processing threads to
-                               utilize
+  -nln, --new_layer_name TEXT  Name of overlay output layer
   --help                       Show this message and exit.
 ```
 
 For example, to overlay `designatedlands` with BC ecosections, first get `ERC_ECOSECTIONS_SP.gdb` from [here](https://catalogue.data.gov.bc.ca/dataset/ecosections-ecoregion-ecosystem-classification-of-british-columbia), then run the following command to create output `dl_eco.gpkg/eco_overlay`: 
 
 ```
-$ python designatedlands.py overlay ERC_ECOSECTIONS_SP.gdb \
+$ designatedlands overlay \
+    ERC_ECOSECTIONS_SP.gdb \
     --in_layer WHSE_TERRESTRIAL_ECOLOGY_ERC_ECOSECTIONS_SP_polygon \
     --new_layer_name eco_overlay \
     --out_file dl_eco.gpkg \
@@ -152,8 +151,8 @@ The file `sources.csv` defines all source layers and how they are processed. Edi
 | **designation_name_col**   | The column in the source data that defines the name for each feature                                                                                                                   |
 | **category**                 | A number prefixed code defining the broader designated class to which the layer belongs. Leave blank for non designated lands sources (tiling, boundary or preprocessing layers)      | 
 | **url**                    | Download url for the data source                                                                                                                                                       | 
-| **file_in_url**            | Name of the file of interest in the download from specified url. Omitted for BCGW downloads                                                                                            | 
-| **layer_in_file**          | For downloads of multi-layer files, and BCGW object names - specify the layer of interest within the file                                                                              | 
+| **file_in_url**            | Name of the file of interest in the download from specified url. Not required for BCGW downloads.                                                                                            | 
+| **layer_in_file**          | For downloads of multi-layer files. Not required for BCGW downloads     | 
 | **query**                  | A SQL query defining the subset of data of interest from the given file/layer (SQLite dialect)                                                                                         | 
 | **metadata_url**           | URL for metadata reference                                                                                                                                                             | 
 | **info_url**               | Background/info url in addtion to metadata (if available)   | 
