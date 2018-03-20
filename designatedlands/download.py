@@ -17,120 +17,79 @@ from designatedlands import util
 CHUNK_SIZE = 1024
 
 
-def get_layer_name(file, layer_name):
-    """Find the layer in the file source that best matches provided layer_name
+def download_bcgw(url, dl_path, email, force_download=False):
+    """Download BCGW data using bcdata/DWDS
     """
-    layers = fiona.listlayers(file)
-    # replace the . with _ in WHSE objects
-    if re.match("^WHSE_", layer_name):
-        layer_name = re.sub("\\.", "_", layer_name)
-    if len(layers) > 1:
-        if layer_name not in layers:
-            # look for  layername_polygon
-            if layer_name + '_polygon' in layers:
-                layer = layer_name + '_polygon'
-            else:
-                raise Exception("cannot find layer name")
-
-        else:
-            layer = layer_name
-    else:
-        layer = layers[0]
-    return layer
-
-
-def download_bcgw(url, dl_path, email, gdb=None, layer=None):
-    """Download BCGW data using DWDS
-    """
-    # get just the package name from the url
+    # derive databc package name from the url
     package = os.path.split(urlparse(url).path)[1]
-    util.log('Downloading %s' % package)
-    download = bcdata.download(package, email)
-    if not download:
-        raise Exception("Failed to create DWDS order")
 
-    # move the download to specified dl_path, deleting if it already exists
-    if gdb:
-        out_gdb = gdb
-    else:
-        out_gdb = os.path.split(download)[1]
-    if os.path.exists(os.path.join(dl_path, out_gdb)):
-        shutil.rmtree(os.path.join(dl_path, out_gdb))
-    shutil.copytree(download, os.path.join(dl_path, out_gdb))
-    if layer:
-        layer_name = get_layer_name(os.path.join(dl_path, out_gdb), layer)
-    else:
-        layer_name = None
-    return (os.path.join(dl_path, out_gdb), layer_name)
+    # get schema/table from DataBC API
+    package_info = bcdata.package_show(package)
+    object_name = package_info['object_name']
+    schema = object_name.split('.')[0]
+    table = object_name.split('.')[1]
+
+    # dwds download naming is consistent
+    out_gdb = table+'.gdb'
+    layer = schema+'_'+table
+    if not os.path.exists(os.path.join(dl_path, out_gdb)) or force_download:
+        util.log('Downloading %s' % package)
+        util.log(email)
+        download = bcdata.download(package, email)
+        if not download:
+            raise Exception("Failed to create DWDS order")
+        if os.path.exists(os.path.join(dl_path, out_gdb)):
+            shutil.rmtree(os.path.join(dl_path, out_gdb))
+        shutil.copytree(download, os.path.join(dl_path, out_gdb))
+    return (os.path.join(dl_path, out_gdb), layer)
 
 
-def download_non_bcgw(
-    url, dl_path, alias, source_filename, source_layer, download_cache=None
-):
+def download_non_bcgw(url, path, filename, layer=None, force_download=False):
     """
-    Download a zipfile to location specified
+    Download and extract a zipfile to unique location
     Modified from https://github.com/OpenBounds/Processing/blob/master/utils.py
     """
-    parsed_url = urlparse(url)
-    urlfile = parsed_url.path.split('/')[-1]
-    _, extension = os.path.split(urlfile)
-    fp = tempfile.NamedTemporaryFile('wb', suffix=extension, delete=False)
-    cache_path = None
-    if download_cache is not None:
-        cache_path = os.path.join(
-            download_cache, hashlib.sha224(url.encode('utf-8')).hexdigest()
-        )
-        if os.path.exists(cache_path):
-            util.log("Returning %s from local cache at %s" % (url, cache_path))
-            fp.close()
-            shutil.copy(cache_path, fp.name)
-            return fp
+    # create a unique name for downloading and unzipping, this ensures the file
+    # will only get downloaded once
+    out_folder = os.path.join(path, hashlib.sha224(url.encode('utf-8')).hexdigest())
+    out_file = os.path.join(out_folder, filename)
 
-    util.log('Downloading ' + url)
-    if parsed_url.scheme == "http" or parsed_url.scheme == "https":
-        res = requests.get(url, stream=True, verify=False)
-        if not res.ok:
-            raise IOError
+    if force_download and os.path.exists(out_folder):
+        shutil.rmtree(out_folder)
 
-        for chunk in res.iter_content(CHUNK_SIZE):
-            fp.write(chunk)
-    elif parsed_url.scheme == "ftp":
-        download = urllib.request.urlopen(url)
-        file_size_dl = 0
-        block_sz = 8192
-        while True:
-            buffer = download.read(block_sz)
-            if not buffer:
-                break
-
-            file_size_dl += len(buffer)
-            fp.write(buffer)
-    fp.close()
-    if cache_path:
-        if not os.path.exists(download_cache):
-            os.makedirs(download_cache)
-        shutil.copy(fp.name, cache_path)
-    # extract zipfile (this is the only supported non-bcgw file format)
-    out_file = extract(fp, dl_path, alias, source_filename)
-    if source_layer:
-        layer_name = get_layer_name(out_file, source_layer)
-    else:
-        layer_name = None
-    return (out_file, layer_name)
-
-
-def extract(fp, dl_path, alias, source_filename):
-    """
-    Unzip the archive, return path to specified file
-    (this presumes that we already know the name of the desired file)
-    Modified from https://github.com/OpenBounds/Processing/blob/master/utils.py
-    """
-    unzip_dir = util.make_sure_path_exists(os.path.join(dl_path, alias))
-    util.log('Extracting %s to %s' % (fp.name, unzip_dir))
-    zipped_file = get_compressed_file_wrapper(fp.name)
-    zipped_file.extractall(unzip_dir)
-    zipped_file.close()
-    return os.path.join(unzip_dir, source_filename)
+    if not os.path.exists(out_folder):
+        util.log('Downloading ' + url)
+        parsed_url = urlparse(url)
+        urlfile = parsed_url.path.split('/')[-1]
+        _, extension = os.path.split(urlfile)
+        fp = tempfile.NamedTemporaryFile('wb', suffix=extension, delete=False)
+        if parsed_url.scheme == "http" or parsed_url.scheme == "https":
+            res = requests.get(url, stream=True, verify=False)
+            if not res.ok:
+                raise IOError
+            for chunk in res.iter_content(CHUNK_SIZE):
+                fp.write(chunk)
+        elif parsed_url.scheme == "ftp":
+            download = urllib.request.urlopen(url)
+            file_size_dl = 0
+            block_sz = 8192
+            while True:
+                buffer = download.read(block_sz)
+                if not buffer:
+                    break
+                file_size_dl += len(buffer)
+                fp.write(buffer)
+        fp.close()
+        # extract zipfile
+        unzip_dir = util.make_sure_path_exists(out_folder)
+        util.log('Extracting %s to %s' % (fp.name, unzip_dir))
+        zipped_file = get_compressed_file_wrapper(fp.name)
+        zipped_file.extractall(unzip_dir)
+        zipped_file.close()
+    # get layer name
+    if not layer:
+        layer = fiona.listlayers(os.path.join(out_folder, filename))[0]
+    return (out_file, layer)
 
 
 class ZipCompatibleTarFile(tarfile.TarFile):

@@ -90,7 +90,7 @@ def create_db():
 
 @cli.command()
 @click.option('--alias', '-a', help=HELP['alias'])
-@click.option('--force_download', default=False, help='Force fresh download')
+@click.option('--force_download', is_flag=True, default=False, help='Force fresh download')
 def load(alias, force_download):
     """Download data, load to postgres
     """
@@ -99,46 +99,27 @@ def load(alias, force_download):
     # filter sources based on optional provided alias and ignoring excluded
     if alias:
         sources = [s for s in sources if s["alias"] == alias]
+        if not sources:
+            raise ValueError('Alias %s does not exist' % alias)
     sources = [s for s in sources if s["exclude"] != 'T']
     # process sources where automated downloads are avaiable
     load_commands = []
     for source in [s for s in sources if s["manual_download"] != 'T']:
         # handle BCGW downloads
         if urlparse(source["url"]).hostname == 'catalogue.data.gov.bc.ca':
-            gdb = source["layer_in_file"].split(".")[1].strip() + ".gdb"
-            file = os.path.join(config["dl_path"], gdb)
-            layer = download.get_layer_name(file, source["layer_in_file"])
-            # download only if layer is not already there or if forced
-            if not os.path.exists(file) or force_download:
-                file, layer = download.download_bcgw(
-                    source["url"],
-                    config["dl_path"],
-                    email=config["email"],
-                    gdb=gdb,
-                    layer=source["layer_in_file"],
-                )
+            file, layer = download.download_bcgw(
+                source["url"],
+                config["dl_path"],
+                email=config["email"],
+                force_download=force_download
+            )
         # handle all other downloads (zipfiles only)
         else:
-            if os.path.exists(
-                os.path.join(config['dl_path'], source["alias"])
-            ):
-                file = os.path.join(
-                    config['dl_path'], source["alias"], source['file_in_url']
-                )
-                layer = download.get_layer_name(file, source["layer_in_file"])
-            else:
-                download_cache = os.path.join(
-                    tempfile.gettempdir(), "dl_cache"
-                )
-                if not os.path.exists(download_cache):
-                    os.makedirs(download_cache)
-                file, layer = download.download_non_bcgw(
-                    source['url'],
-                    config['dl_path'],
-                    source['alias'],
-                    source['file_in_url'],
-                    download_cache,
-                )
+            file, layer = download.download_non_bcgw(
+                source['url'],
+                config['dl_path'],
+                source['file_in_url'],
+                force_download=force_download)
         load_commands.append(
             db.ogr2pg(
                 file,
@@ -154,11 +135,10 @@ def load(alias, force_download):
         if not os.path.exists(file):
             raise Exception(file + " does not exist, download it manually")
 
-        layer = download.get_layer_name(file, source["layer_in_file"])
         load_commands.append(
             db.ogr2pg(
                 file,
-                in_layer=layer,
+                in_layer=source['layer_in_file'],
                 out_layer=source["input_table"],
                 sql=source["query"],
                 cmd_only=True,

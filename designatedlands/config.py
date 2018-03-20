@@ -19,11 +19,11 @@ def read_config(config_file):
     # don't try and use more cores than are available
     elif config_dict['n_processes'] > multiprocessing.cpu_count():
         config_dict['n_processes'] = multiprocessing.cpu_count()
-    if 'email' not in config_dict.keys():
+    if 'email' not in config_dict.keys() or config_dict['email'] == '':
         if os.environ["BCDATA_EMAIL"]:
             config_dict['email'] = os.environ["BCDATA_EMAIL"]
         else:
-            raise ValueError('Provide an email in .cfg or set BCDATA_EMAIL')
+            raise ValueError('Provide an email in .cfg or set $BCDATA_EMAIL')
     return config_dict
 
 
