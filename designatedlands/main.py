@@ -11,7 +11,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
 import os
 import subprocess
 import tempfile
@@ -104,7 +103,12 @@ def create_db():
 
 @cli.command()
 @click.option('--alias', '-a', help=HELP['alias'])
-@click.option('--force_download', is_flag=True, default=False, help='Force fresh download')
+@click.option(
+    '--force_download',
+    is_flag=True,
+    default=False,
+    help='Force fresh download',
+)
 def load(alias, force_download):
     """Download data, load to postgres
     """
@@ -115,6 +119,7 @@ def load(alias, force_download):
         sources = [s for s in sources if s["alias"] == alias]
         if not sources:
             raise ValueError('Alias %s does not exist' % alias)
+
     sources = [s for s in sources if s["exclude"] != 'T']
     # process sources where automated downloads are avaiable
     load_commands = []
@@ -125,7 +130,7 @@ def load(alias, force_download):
                 source["url"],
                 config["dl_path"],
                 email=config["email"],
-                force_download=force_download
+                force_download=force_download,
             )
         # handle all other downloads (zipfiles only)
         else:
@@ -133,7 +138,8 @@ def load(alias, force_download):
                 source['url'],
                 config['dl_path'],
                 source['file_in_url'],
-                force_download=force_download)
+                force_download=force_download,
+            )
         load_commands.append(
             db.ogr2pg(
                 file,
@@ -185,22 +191,22 @@ def load(alias, force_download):
 def process(resume, force_preprocess, tiles):
     """Create output designatedlands tables
     """
-
     db = pgdata.connect(config["db_url"], schema="public")
     # run required preprocessing, tile, attempt to clean inputs
     geoutil.preprocess(db, config['source_csv'], force=force_preprocess)
     geoutil.tile_sources(db, config['source_csv'], force=force_preprocess)
-    geoutil.clean_and_agg_sources(db, config['source_csv'], force=force_preprocess)
-
+    geoutil.clean_and_agg_sources(
+        db, config['source_csv'], force=force_preprocess
+    )
     # parse the list of tiles
     tilelist = geoutil.parse_tiles(db, tiles)
-
     # create target tables if not resuming from a bailed process
     if not resume:
         # create output tables
         db.execute(
             db.build_query(
-                db.queries["create_outputs_prelim"], {"table": config['out_table']}
+                db.queries["create_outputs_prelim"],
+                {"table": config['out_table']},
             )
         )
     # filter sources - use only non-exlcuded sources with hierarchy > 0
@@ -277,12 +283,21 @@ def process(resume, force_preprocess, tiles):
     # create marine-terrestrial layer
     if 'bc_boundary' not in db.tables:
         geoutil.create_bc_boundary(db, config['n_processes'])
-    util.log('Cutting %s with marine-terrestrial definition' % config['out_table'])
+    util.log(
+        'Cutting %s with marine-terrestrial definition' % config['out_table']
+    )
     geoutil.intersect(
-        db, config['out_table'] + "_prelim", "bc_boundary", config['out_table'], config['n_processes'], tiles
+        db,
+        config['out_table'] + "_prelim",
+        "bc_boundary",
+        config['out_table'],
+        config['n_processes'],
+        tiles,
     )
     tidy_designations(db, sources, "cleaned_table", config['out_table'])
-    tidy_designations(db, sources, "cleaned_table", config['out_table'] + "_overlaps")
+    tidy_designations(
+        db, sources, "cleaned_table", config['out_table'] + "_overlaps"
+    )
 
 
 @cli.command()

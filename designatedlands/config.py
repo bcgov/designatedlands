@@ -11,7 +11,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
 import configparser
 import multiprocessing
 import os
@@ -38,6 +37,7 @@ def read_config(config_file):
             config_dict['email'] = os.environ["BCDATA_EMAIL"]
         else:
             raise ValueError('Provide an email in .cfg or set $BCDATA_EMAIL')
+
     return config_dict
 
 

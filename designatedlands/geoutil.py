@@ -11,7 +11,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
 import logging
 import multiprocessing
 from functools import partial
@@ -111,12 +110,11 @@ def union(db, in_table, columns, out_table):
              FROM {in_table}
              GROUP BY {columns}
           """.format(
-        temp=out_table,
-        columns=columns,
-        in_table=in_table
+        temp=out_table, columns=columns, in_table=in_table
     )
     util.log(
-        'Unioning geometries in %s by %s to create %s' % (in_table, columns, out_table)
+        'Unioning geometries in %s by %s to create %s' %
+        (in_table, columns, out_table)
     )
     db.execute(sql)
 
@@ -202,7 +200,10 @@ def preprocess(db, source_csv, alias=None, force=False):
         if source["input_table"] + "_preprc" not in db.tables or force:
             util.log("Preprocessing: %s" % source["alias"])
             if source['preprocess_operation'] not in ['clip', 'union']:
-                raise ValueError('Preprocess operation %s not supprted' % source['preprocess_operation'])
+                raise ValueError(
+                    'Preprocess operation %s not supprted' %
+                    source['preprocess_operation']
+                )
 
             # prefix clip layer name with 'a00', only non tiled, non hierarchy
             # clip layers are suppported
@@ -221,8 +222,7 @@ def preprocess(db, source_csv, alias=None, force=False):
             db.execute(
                 """CREATE TABLE {t} AS
                    SELECT * FROM {temp}
-                """.format(t=source["input_table"],
-                           temp=source["input_table"] + "_preprc")
+                """.format(t=source["input_table"], temp=source["input_table"] + "_preprc")
             )
             # re-create spatial index
             db[source["input_table"]].create_index_geom()

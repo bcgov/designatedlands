@@ -11,7 +11,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
 import os
 import hashlib
 import requests
@@ -35,17 +34,15 @@ def download_bcgw(url, dl_path, email, force_download=False):
     """
     # derive databc package name from the url
     package = os.path.split(urlparse(url).path)[1]
-
     # get schema/table from DataBC API
     package_info = bcdata.package_show(package)
     object_name = package_info['object_name']
     schema = object_name.split('.')[0]
     table = object_name.split('.')[1]
-
     # dwds download naming is consistent
-    out_gdb = table+'.gdb'
+    out_gdb = table + '.gdb'
     out_folder = os.path.join(dl_path, out_gdb)
-    layer = schema+'_'+table
+    layer = schema + '_' + table
     if force_download and os.path.exists(out_folder):
         shutil.rmtree(out_folder)
     if not os.path.exists(out_folder):
@@ -53,6 +50,7 @@ def download_bcgw(url, dl_path, email, force_download=False):
         download = bcdata.download(package, email)
         if not download:
             raise Exception("Failed to download " + package)
+
         shutil.copytree(download, out_folder)
     return (out_folder, layer)
 
@@ -64,12 +62,12 @@ def download_non_bcgw(url, path, filename, layer=None, force_download=False):
     """
     # create a unique name for downloading and unzipping, this ensures a given
     # url will only get downloaded once
-    out_folder = os.path.join(path, hashlib.sha224(url.encode('utf-8')).hexdigest())
+    out_folder = os.path.join(
+        path, hashlib.sha224(url.encode('utf-8')).hexdigest()
+    )
     out_file = os.path.join(out_folder, filename)
-
     if force_download and os.path.exists(out_folder):
         shutil.rmtree(out_folder)
-
     if not os.path.exists(out_folder):
         util.log('Downloading ' + url)
         parsed_url = urlparse(url)
@@ -80,6 +78,7 @@ def download_non_bcgw(url, path, filename, layer=None, force_download=False):
             res = requests.get(url, stream=True, verify=False)
             if not res.ok:
                 raise IOError
+
             for chunk in res.iter_content(CHUNK_SIZE):
                 fp.write(chunk)
         elif parsed_url.scheme == "ftp":
@@ -90,6 +89,7 @@ def download_non_bcgw(url, path, filename, layer=None, force_download=False):
                 buffer = download.read(block_sz)
                 if not buffer:
                     break
+
                 file_size_dl += len(buffer)
                 fp.write(buffer)
         fp.close()
