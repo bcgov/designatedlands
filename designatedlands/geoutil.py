@@ -276,7 +276,7 @@ def create_bc_boundary(db, n_processes):
             db.queries["populate_output"],
             {"in_table": source + "_tiled", "out_table": "bc_boundary"},
         )
-        tiles = get_tiles(db, source + "_tiled")
+        tiles = get_tiles(db, source + "_tiled", "tiles")
         func = partial(parallel_tiled, db.url, sql)
         pool = multiprocessing.Pool(processes=n_processes)
         pool.map(func, tiles)

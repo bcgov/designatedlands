@@ -236,7 +236,7 @@ def process(resume, force_preprocess, tiles):
         )
         # determine which specified tiles are present in source layer
         src_tiles = set(
-            geoutil.get_tiles(db, source["cleaned_table"], tile_table='a00_tiles_20k')
+            geoutil.get_tiles(db, source["cleaned_table"], tile_table='tiles')
         )
         if tilelist:
             tiles = set(tilelist) & src_tiles

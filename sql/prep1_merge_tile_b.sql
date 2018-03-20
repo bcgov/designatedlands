@@ -36,9 +36,6 @@ INSERT INTO $out_table (designation, map_tile, geom)
           -- dump
             (ST_Dump(
           -- union to remove overlapping polys within the source
-          -- (this is common, even though we are grouping by designation name and
-          -- id - for example, there are three records for Wells Gray Park
-          -- currently in the parks_provincial source 2017-10-20)
             ST_Union(
               ST_Multi(
           -- include only polygons in cases of geometrycollections
