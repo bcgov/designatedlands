@@ -30,17 +30,17 @@ def download_bcgw(url, dl_path, email, force_download=False):
 
     # dwds download naming is consistent
     out_gdb = table+'.gdb'
+    out_folder = os.path.join(dl_path, out_gdb)
     layer = schema+'_'+table
-    if not os.path.exists(os.path.join(dl_path, out_gdb)) or force_download:
+    if force_download and os.path.exists(out_folder):
+        shutil.rmtree(out_folder)
+    if not os.path.exists(out_folder):
         util.log('Downloading %s' % package)
-        util.log(email)
         download = bcdata.download(package, email)
         if not download:
-            raise Exception("Failed to create DWDS order")
-        if os.path.exists(os.path.join(dl_path, out_gdb)):
-            shutil.rmtree(os.path.join(dl_path, out_gdb))
-        shutil.copytree(download, os.path.join(dl_path, out_gdb))
-    return (os.path.join(dl_path, out_gdb), layer)
+            raise Exception("Failed to download " + package)
+        shutil.copytree(download, out_folder)
+    return (out_folder, layer)
 
 
 def download_non_bcgw(url, path, filename, layer=None, force_download=False):
@@ -48,8 +48,8 @@ def download_non_bcgw(url, path, filename, layer=None, force_download=False):
     Download and extract a zipfile to unique location
     Modified from https://github.com/OpenBounds/Processing/blob/master/utils.py
     """
-    # create a unique name for downloading and unzipping, this ensures the file
-    # will only get downloaded once
+    # create a unique name for downloading and unzipping, this ensures a given
+    # url will only get downloaded once
     out_folder = os.path.join(path, hashlib.sha224(url.encode('utf-8')).hexdigest())
     out_file = os.path.join(out_folder, filename)
 
