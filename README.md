@@ -120,8 +120,7 @@ Usage: designatedlands overlay [OPTIONS] IN_FILE
 
 Options:
   -l, --in_layer TEXT          Input layer name
-  --dump_file                  Dump to file (as specified by out_file and
-                               out_format)
+  --dump_file                  Dump to file (out_file in .cfg)
   -nln, --new_layer_name TEXT  Name of overlay output layer
   --help                       Show this message and exit.
 ```

@@ -278,7 +278,7 @@ def process(resume, force_preprocess, tiles):
     '--dump_file',
     is_flag=True,
     default=False,
-    help="Dump to file (as specified by out_file and out_format)",
+    help="Dump to file (out_file in .cfg)",
 )
 @click.option('--new_layer_name', '-nln', help="Name of overlay output layer")
 def overlay(in_file, in_layer, dump_file, new_layer_name):
