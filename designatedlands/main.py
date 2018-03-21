@@ -33,8 +33,6 @@ HELP = {
     "alias": "The 'alias' key for the source of interest",
 }
 
-EPSG3005 = "'+proj=aea +lat_1=50 +lat_2=58.5 +lat_0=45 +lon_0=-126 +x_0=1000000 +y_0=0 +ellps=GRS80 +units=m +no_defs'"
-
 
 def tidy_designations(db, sources, designation_key, out_table):
     """Add and populate 'category' column, tidy the national park designations
@@ -149,7 +147,6 @@ def load(alias, force_download):
                 in_layer=layer,
                 out_layer=source["input_table"],
                 sql=source["query"],
-                t_srs=EPSG3005,
                 cmd_only=True,
             )
         )
@@ -165,7 +162,6 @@ def load(alias, force_download):
                 in_layer=source['layer_in_file'],
                 out_layer=source["input_table"],
                 sql=source["query"],
-                t_srs=EPSG3005,
                 cmd_only=True,
             )
         )
