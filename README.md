@@ -28,19 +28,27 @@ A complete run of the tool was completed on Sept 21, 2017, and the results are r
 
     **macos/linux**
         
-        $ pip install pgxn
+        $ pip install pgxnclient
         $ pgxn install lostgis
             
     **Windows**  
 
     The [pgxn client](https://github.com/dvarrazzo/pgxnclient) does not work on Windows. See `scripts\lostgis_windows.bat` for a guide to installing the required functions. 
 
-5. Install Python dependencies:        
+5. Install designatedlands package:        
      
 
      **macos/linux**
-     
+    
+    Install to user's Python:
+
+        $ pip install --user . 
+        
+    or install to a pipenv virtual environment: 
+        
         $ pipenv install
+        $ pipenv shell
+        $ pipenv install .
 
      **Windows**  
 
