@@ -140,6 +140,7 @@ def load(alias, force_download):
                 source['url'],
                 config['dl_path'],
                 source['file_in_url'],
+                source['layer_in_file'],
                 force_download=force_download,
             )
         load_commands.append(
