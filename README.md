@@ -184,8 +184,7 @@ ogr2ogr \
          category, 
          geom 
         FROM designatedlands" \
-  designatedlands.gpkg \
-  designatedlands
+  designatedlands.gpkg 
 
 # clean and dissolve
 mapshaper \
