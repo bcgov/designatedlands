@@ -66,11 +66,15 @@ def tidy_designations(db, sources, designation_key, out_table):
                """.format(t=out_table)
     )
     # Remove national park names from the national park tags
+    prefix = 'c'
+    if out_table.split('_').pop() == 'overlaps':
+        prefix = 'b'
+
     sql = """UPDATE {t}
-             SET designation = 'c01_park_national'
-             WHERE designation LIKE 'c01_park_national%%'
+             SET designation = '{p}01_park_national'
+             WHERE designation LIKE '{p}01_park_national%%'
           """.format(
-        t=out_table
+        t=out_table, p=prefix
     )
     db.execute(sql)
 
@@ -301,7 +305,7 @@ def process(resume, force_preprocess, tiles):
     )
     tidy_designations(db, sources, "cleaned_table", config['out_table'])
     tidy_designations(
-        db, sources, "cleaned_table", config['out_table'] + "_overlaps"
+        db, sources, "tiled_table", config['out_table'] + "_overlaps"
     )
 
 
