@@ -49,6 +49,8 @@ A complete run of the tool was completed on Sept 21, 2017, and the results are r
         $ pipenv install
         $ pipenv shell
         $ pip install .
+        $ # If you are developing, install in 'editable' mode:
+        $ # pip install -e .
 
      **Windows**  
 
