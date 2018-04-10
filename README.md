@@ -48,7 +48,7 @@ A complete run of the tool was completed on Sept 21, 2017, and the results are r
         
         $ pipenv install
         $ pipenv shell
-        $ pipenv install .
+        $ pip install .
 
      **Windows**  
 
@@ -170,7 +170,14 @@ The file `sources.csv` defines all source layers and how they are processed. Edi
 
 ## Aggregate output layers with Mapshaper
 
-As a part of data load, designatedlands dices all inputs into BCGS 1:20,000 map tiles. This speeds up processing significantly by enabling efficient parallel processing and limiting the size/complexity of input geometries. However, very small gaps are created between the tiles and re-aggregating (dissolving) output layers across tiles in PostGIS is error prone. While the gaps do not have any effect on the designated lands stats, they do need to be removed for display. Rather than attempt this in PostGIS, we can aggregate outputs using the topologically enabled `mapshaper` tool:
+As a part of data load, designatedlands dices all inputs into BCGS 1:20,000 map tiles. This speeds up processing significantly by enabling efficient parallel processing and limiting the size/complexity of input geometries. However, very small gaps are created between the tiles and re-aggregating (dissolving) output layers across tiles in PostGIS is error prone. While the gaps do not have any effect on the designated lands stats, they do need to be removed for display. Rather than attempt this in PostGIS, we can aggregate outputs using the topologically enabled [`mapshaper`](https://github.com/mbloch/mapshaper/) tool:
+
+If not already installed, install node (<https://nodejs.org/en/>) and then 
+install mapshaper with:
+
+```
+npm install -g mapshaper
+```
 
 ```
 # mapshaper doesn't read .gpkg, convert output to shapefile 
@@ -186,8 +193,9 @@ ogr2ogr \
         FROM designatedlands" \
   designatedlands.gpkg 
 
-# clean and dissolve
-mapshaper \
+# clean and dissolve 
+# (use mapshaper-xl, available with mapshaper v0.4.63 or higher)
+mapshaper-xl \
   designatedlands.shp \
   -clean snap-interval=0.01 \
   -dissolve desig \
