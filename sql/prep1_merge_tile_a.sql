@@ -39,20 +39,18 @@ INSERT INTO $out_table (designation, designation_id, designation_name, map_tile,
           ST_Safe_Repair(
           -- dump
             (ST_Dump(
-          -- union to remove overlapping polys within the source
-          -- (this is common, even though we are grouping by designation name and
-          -- id - for example, there are three records for Wells Gray Park
-          -- currently in the parks_provincial source 2017-10-20)
-            ST_Union(
-              ST_Multi(
+          -- merge records with the same name and id
+               ST_Union(
+          -- force to multipart just to make sure everthing is the same
+                 ST_Multi(
           -- include only polygons in cases of geometrycollections
-                ST_CollectionExtract(
+                   ST_CollectionExtract(
           -- intersect with tiles
-                  CASE
-                    WHEN ST_CoveredBy(a.geom, b.geom) THEN a.geom
-                    ELSE ST_Safe_Intersection(a.geom, b.geom)
-                  END
-                , 3)
+                    CASE
+                      WHEN ST_CoveredBy(a.geom, b.geom) THEN a.geom
+                      ELSE ST_Safe_Intersection(a.geom, b.geom)
+                    END
+                  , 3)
                 )
               )
               )).geom) as geom
