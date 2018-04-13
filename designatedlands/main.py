@@ -65,16 +65,16 @@ def tidy_designations(db, sources, designation_key, out_table):
                   WHERE o.designation = lut.alias
                """.format(t=out_table)
     )
-    # Remove national park names from the national park tags
-    prefix = 'c'
-    if out_table.split('_').pop() == 'overlaps':
-        prefix = 'b'
-
+    # Remove prefrixes and national park names from the designations tags
     sql = """UPDATE {t}
-             SET designation = '{p}01_park_national'
-             WHERE designation LIKE '{p}01_park_national%%'
+             SET designation = '01_park_national'
+             WHERE designation LIKE '%%01_park_national%%';
+
+             UPDATE {t}
+             SET designation = substring(designation from 2)
+             WHERE designation ~ '^[a-c][0-9]'
           """.format(
-        t=out_table, p=prefix
+        t=out_table
     )
     db.execute(sql)
 
