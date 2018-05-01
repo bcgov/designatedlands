@@ -206,6 +206,10 @@ mapshaper-xl \
   -o dl_clean.shp
 ```
 
+## Results
+
+The results of previous runs of the tool can be found on the [releases](https://github.com/bcgov/designatedlands/releases) page
+of this repository.
 
 ## License
 
