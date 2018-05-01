@@ -236,7 +236,7 @@ def process(resume, force_preprocess, tiles):
             db.queries["populate_output_overlaps"],
             {
                 "in_table": source["tiled_table"],
-                "out_table": config['out_table'] + "_overlaps",
+                "out_table": config['out_table'] + "_overlaps_prelim",
             },
         )
         db.execute(sql)
@@ -292,17 +292,21 @@ def process(resume, force_preprocess, tiles):
     # create marine-terrestrial layer
     if 'bc_boundary' not in db.tables:
         geoutil.create_bc_boundary(db, config['n_processes'])
-    util.log(
-        'Cutting %s with marine-terrestrial definition' % config['out_table']
-    )
-    geoutil.intersect(
-        db,
-        config['out_table'] + "_prelim",
-        "bc_boundary",
-        config['out_table'],
-        config['n_processes'],
-        tiles,
-    )
+
+    # overlay output tables with marine-terrestrial definition
+    for table in [config['out_table'], config['out_table'] + "_overlaps"]:
+        util.log(
+            'Cutting %s with marine-terrestrial definition' % table
+        )
+        geoutil.intersect(
+            db,
+            table + "_prelim",
+            "bc_boundary",
+            table,
+            config['n_processes'],
+            tiles,
+        )
+
     tidy_designations(db, sources, "cleaned_table", config['out_table'])
     tidy_designations(
         db, sources, "tiled_table", config['out_table'] + "_overlaps"
