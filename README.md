@@ -10,6 +10,8 @@ A complete run of the tool was completed on Sept 21, 2017, and the results are r
 - PostgreSQL 10.0+, PostGIS 2.3+ (tested with PostgreSQL 10.2, PostGIS 2.4.3)
 - GDAL (with `ogr2ogr` available at the command line) (tested with GDAL 2.2.3)
 - Python 3.6
+- Some systems may require tweaking of postgres and system kernel settings. An 
+  example script to optimize on OSX is in `scripts/postgres_mac_setup.sh`.
 
 ## Optional 
 - to aggregate output data across tiles, use [mapshaper](https://github.com/mbloch/mapshaper)
@@ -33,7 +35,7 @@ A complete run of the tool was completed on Sept 21, 2017, and the results are r
             
     **Windows**  
 
-    The [pgxn client](https://github.com/dvarrazzo/pgxnclient) does not work on Windows. See `scripts\lostgis_windows.bat` for a guide to installing the required functions. 
+    The [pgxn client](https://github.com/dvarrazzo/pgxnclient) does not work on Windows. See `scripts/lostgis_windows.bat` for a guide to installing the required functions. 
 
 5. Install designatedlands package:        
      
