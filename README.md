@@ -185,24 +185,24 @@ npm install -g mapshaper
 
 ```
 # mapshaper doesn't read .gpkg, convert output to shapefile 
-# mapshaper only dissolves using one column, retain land/marine designation 
-# by concatenating the designation and bc_boundary fields
 ogr2ogr \
   designatedlands.shp \
   -sql "SELECT 
          designatedlands_id as desig_id, 
-         designation||'; '||bc_boundary as desig, 
+         designation as desig, 
+         bc_boundary as bc_bound,
          category, 
          geom 
         FROM designatedlands" \
   designatedlands.gpkg 
 
 # clean and dissolve 
-# (use mapshaper-xl, available with mapshaper v0.4.63 or higher)
+# requires mapshaper v0.4.72 to dissolve on >1 attribute
+# use mapshaper-xl to allocate enough memory
 mapshaper-xl \
   designatedlands.shp \
   -clean snap-interval=0.01 \
-  -dissolve desig \
+  -dissolve desig,bc_bound \
   copy-fields=category \
   -explode \
   -o dl_clean.shp
