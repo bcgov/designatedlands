@@ -184,28 +184,52 @@ npm install -g mapshaper
 ```
 
 ```
-# mapshaper doesn't read .gpkg, convert output to shapefile 
+# mapshaper doesn't read .gpkg, convert output to shp and use mapshaper 
+# to snap and dissolve tiles
+# requires mapshaper v0.4.72 to dissolve on >1 attribute
+# use mapshaper-xl to allocate enough memory
 ogr2ogr \
-  designatedlands.shp \
+  designatedlands_tmp.shp \
   -sql "SELECT 
-         designatedlands_id as desig_id, 
-         designation as desig, 
+         designatedlands_id as dl_id, 
+         designation as designat, 
          bc_boundary as bc_bound,
          category, 
          geom 
         FROM designatedlands" \
-  designatedlands.gpkg 
-
-# clean and dissolve 
-# requires mapshaper v0.4.72 to dissolve on >1 attribute
-# use mapshaper-xl to allocate enough memory
+  designatedlands.gpkg \
+  -lco ENCODING=UTF-8 &&
 mapshaper-xl \
-  designatedlands.shp \
-  -clean snap-interval=0.01 \
-  -dissolve desig,bc_bound \
-  copy-fields=category \
+  designatedlands_tmp.shp snap \
+  -dissolve designat,bc_bound \
+    copy-fields=category \
   -explode \
-  -o dl_clean.shp
+  -o designatedlands_clean.shp &&
+ls | grep -E "designatedlands_tmp\.(shp|shx|prj|dbf|cpg)" | xargs rm
+```
+
+Do the same for the overlaps file
+```
+ogr2ogr \
+  designatedlands_overlaps_tmp.shp \
+  -sql "SELECT 
+         designatedlands_overlaps_id as dl_ol_id, 
+         designation as designat,
+         designation_id as des_id,
+         designation_name as des_name,
+         bc_boundary as bc_bound,
+         category, 
+         geom 
+        FROM designatedlands_overlaps" \
+  designatedlands.gpkg \
+  -lco ENCODING=UTF-8 &&
+mapshaper-xl \
+  designatedlands_overlaps_tmp.shp snap \
+  -dissolve designat,des_id,des_name,bc_bound \
+    copy-fields=category \
+  -explode \
+  -o designatedlands_overlaps_clean.shp &&
+ls | grep -E "designatedlands_overlaps_tmp\.(shp|shx|prj|dbf|cpg)" | xargs rm
 ```
 
 ## Results
