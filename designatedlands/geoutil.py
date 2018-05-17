@@ -405,7 +405,7 @@ def dump_aggregate(config, new_layer_name):
         -explode \
         -o dl_clean.shp
     """
-    config = util.read_config(config)
+    # config = util.read_config(config)
     db = pgdata.connect(config["db_url"], schema="public")
     util.log('Aggregating %s to %s' % (config['out_table'], new_layer_name))
     # find all non-null designations

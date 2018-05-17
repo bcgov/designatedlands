@@ -360,30 +360,39 @@ def overlay(in_file, in_layer, dump_file, new_layer_name):
     default=False,
     help="Dump output _overlaps table to file",
 )
-def dump(overlaps):
+@click.option('--aggregate',
+    is_flag=True,
+    default=False,
+    help="Aggregate over tile boundaries")
+def dump(overlaps, aggregate):
     """Dump output designatedlands table to file
     """
-    if overlaps:
-        config['out_table'] = config['out_table'] + '_overlaps'
-    db = pgdata.connect(config["db_url"], schema="public")
-    util.log('Dumping %s to %s' % (config['out_table'], config['out_file']))
-    columns = [c for c in db[config['out_table']].columns if c != 'geom']
-    ogr_sql = """SELECT {cols},
-                  st_safe_repair(st_snaptogrid(geom, .001)) as geom
-                FROM {t}
-                WHERE designation IS NOT NULL
-             """.format(
-        cols=",".join(columns), t=config['out_table']
-    )
-    util.log(ogr_sql)
-    db = pgdata.connect(config["db_url"])
-    db.pg2ogr(
-        ogr_sql,
-        config['out_format'],
-        config['out_file'],
-        config['out_table'],
-        geom_type="MULTIPOLYGON",
-    )
+    if aggregate:
+        if overlaps:
+            util.log('ignoring --overlaps flag')
+        geoutil.dump_aggregate(config, 'designatedlands_agg')
+    else:
+        if overlaps:
+            config['out_table'] = config['out_table'] + '_overlaps'
+        db = pgdata.connect(config["db_url"], schema="public")
+        util.log('Dumping %s to %s' % (config['out_table'], config['out_file']))
+        columns = [c for c in db[config['out_table']].columns if c != 'geom']
+        ogr_sql = """SELECT {cols},
+                    st_safe_repair(st_snaptogrid(geom, .001)) as geom
+                    FROM {t}
+                    WHERE designation IS NOT NULL
+                """.format(
+            cols=",".join(columns), t=config['out_table']
+        )
+        util.log(ogr_sql)
+        db = pgdata.connect(config["db_url"])
+        db.pg2ogr(
+            ogr_sql,
+            config['out_format'],
+            config['out_file'],
+            config['out_table'],
+            geom_type="MULTIPOLYGON",
+        )
 
 
 @cli.command()
