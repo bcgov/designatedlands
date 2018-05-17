@@ -472,7 +472,7 @@ def dump_aggregate(config, new_layer_name):
             t=config['out_table'], new_layer_name=new_layer_name
         )
         db.execute(sql, (designation,))
-    util.log('Dumping %s to file %s', (new_layer_name, config['out_file']))
+    util.log('Dumping %s to file %s' % (new_layer_name, config['out_file']))
     db.pg2ogr(
         "SELECT * from " + new_layer_name,
         config['out_format'],
