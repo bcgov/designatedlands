@@ -1,15 +1,17 @@
 -- Copyright 2017 Province of British Columbia
--- 
+--
 -- Licensed under the Apache License, Version 2.0 (the "License");
 -- you may not use this file except in compliance with the License.
 -- You may obtain a copy of the License at
--- 
+--
 -- http://www.apache.org/licenses/LICENSE-2.0
--- 
+--
 -- Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on an "AS IS" BASIS,
 -- WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
--- 
+--
 -- See the License for the specific language governing permissions and limitations under the License.
+
+-- ----------------------------------------------------------------------------------------------------
 
 INSERT INTO $out_table (designation, map_tile, geom)
 
@@ -31,23 +33,22 @@ all_intersects AS
 (SELECT
   i.id AS input_id,
   i.designation AS input_designation,
-  ST_MakeValid(
-     ST_SnapToGrid(o.geom, 0.001)) as output_geom
+  ST_Safe_Repair(ST_SnapToGrid(o.geom, .001)) as output_geom
 FROM src_clip AS i
 INNER JOIN dest_clip AS o
 ON ST_Intersects(o.geom, i.geom)),
 
 -- Union the existing intersecting polys in the output/target layer
--- To reduce topology exceptions, reduce precision of interesecting records
--- because many edges are similar/parallel
+-- To reduce topology exceptions, aggressively reduce precision of interesecting
+-- records (1cm) because so many edges are similar/parallel
 -- http://tsusiatsoftware.net/jts/jts-faq/jts-faq.html#D9
 target_intersections AS
 (SELECT
    a.input_id AS id,
    ST_Union(
-       ST_Buffer(
+      ST_Buffer(
          ST_CollectionExtract(
-           ST_SnapToGrid(a.output_geom, 0.001), 3), 0.001, 'join=mitre')) AS geom
+           ST_SnapToGrid(a.output_geom, 0.01), 3), 0)) AS geom
 FROM all_intersects a
 GROUP BY a.input_id),
 
@@ -63,21 +64,7 @@ FROM
        i.designation as designation,
        i.map_tile as map_tile,
        (ST_Dump(COALESCE(
-        -- no exception catching
-        /*
-        ST_Difference(
-             st_makevalid(
-                st_buffer(
-                   st_snap(
-                      st_snaptogrid(i.geom, .001), u.geom, 1), 0)),
-
-             st_makevalid(
-                st_buffer(
-                   st_snaptogrid(u.geom, .001), 0)))
-        */
-
-        -- catch exceptions
-          safe_diff(i.geom, u.geom)
+          ST_Safe_Difference(i.geom, u.geom)
           ))).geom
         AS geom
      FROM src_clip AS i
@@ -102,10 +89,15 @@ LEFT JOIN all_intersects a ON i.id = a.input_id
 WHERE a.input_id IS null)
 
 
--- combine things and make sure we aren't inserting point or line intersections
-SELECT designation, map_tile, ST_MakeValid(geom) as geom
-FROM difference
-WHERE GeometryType(geom) = 'MULTIPOLYGON'
+-- combine inputs, attempt to clean results of st_difference, make sure we aren't inserting point or line intersections
+SELECT d.designation, d.map_tile,
+--ST_Safe_Repair(ST_Snap((ST_Dump(ST_Safe_Repair(d.geom))).geom, t.geom, .01)) as geom
+ST_Safe_Repair(ST_Snap((ST_Dump(ST_Safe_Repair(st_buffer(st_buffer(d.geom, -0.001), .001)))).geom, t.geom, .01)) as geom
+FROM difference d
+INNER JOIN tiles t ON d.map_tile = t.map_tile
+WHERE GeometryType(d.geom) = 'MULTIPOLYGON'
 UNION ALL
-SELECT designation, map_tile, ST_MakeValid(geom) as geom
-FROM non_intersections
+SELECT ni.designation, ni.map_tile,
+ST_Safe_Repair(ST_Snap((ST_Dump(ST_Safe_Repair(ni.geom))).geom, t.geom, .01)) as geom
+FROM non_intersections ni
+INNER JOIN tiles t ON ni.map_tile = t.map_tile

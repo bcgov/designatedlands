@@ -1,0 +1,9 @@
+global-exclude .DS_Store
+global-exclude *.pyc
+exclude MANIFEST.in
+recursive-include tests *.py
+recursive-include sql *.sql
+include CHANGES.txt LICENSE README.md
+include requirements.txt
+include designatedlands/sources.csv
+include designatedlands/designatedlands.cfg
