@@ -3,7 +3,7 @@ Changes
 
 All issue numbers are relative to https://github.com/bcgov/designatedlands/issues.
 
-0.1.0 (2018-03-31)
+0.1.0 (2018-05-17)
 ------------------
 - change category for Forest Rec Sites (#50)
 - enable pre-processing of BC Parks to remove duplicate records (#48)
@@ -17,4 +17,5 @@ All issue numbers are relative to https://github.com/bcgov/designatedlands/issue
 - advise use of mapshaper for aggregating outputs rather than supporting a PostGIS driven function (#37)
 - de-duplicate non-BCGW data downloads (#17)
 - autoformat code with https://github.com/kennethreitz/white
-
+- More robust to invalid geometries and other issues
+- Better documentation
