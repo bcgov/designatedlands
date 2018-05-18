@@ -78,8 +78,6 @@ Modify general configuration of designatedlands by editing the default `designat
 
 First, configure or adapt the file `sources.csv` as required. This file defines all layers/data sources to be processed and how the script will process each layer. See [below](#sources.csv) for a full description of this file and how it defines the various data sources.
 
-For repeating the Sept 21, 2017 analysis, source BCGW data are provided in a zip file attached to the [latest release](https://github.com/bcgov/designatedlands/releases). Manually download that file and extract it to the `source_data` folder.
-
 If running a new analysis, download data sources specified as **manual downloads** in `sources.csv`.
 
 Using the `designatedlands` tool, load and process all data then dump the results to geopackage:
