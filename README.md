@@ -233,7 +233,7 @@ ls | grep -E "designatedlands_overlaps_tmp\.(shp|shx|prj|dbf|cpg)" | xargs rm
 ## Results
 
 The results of previous runs of the tool can be found on the [releases](https://github.com/bcgov/designatedlands/releases) page
-of this repository.
+of this repository. The [`make_resources.sh`](scripts/make_resources.sh) script is used to generate the data hosted in the release.
 
 ## License
 
