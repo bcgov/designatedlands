@@ -20,6 +20,8 @@ ogr2ogr $newdir/designatedlands.shp -sql \
    designatedlands.gpkg \
    -lco ENCODING=UTF-8
 
+ogrinfo $newdir/designatedlands.shp -sql "CREATE SPATIAL INDEX ON designatedlands" 
+
 ogr2ogr $newdir/designatedlands_overlaps.shp -sql \
   "SELECT designatedlands_overlaps_id as dl_ol_id,
     category,
@@ -33,15 +35,19 @@ ogr2ogr $newdir/designatedlands_overlaps.shp -sql \
   designatedlands.gpkg \
   -lco ENCODING=UTF-8
 
-zip $newdir/designatedlands.shp.zip \
+ogrinfo $newdir/designatedlands_overlaps.shp -sql "CREATE SPATIAL INDEX ON designatedlands_overlaps" 
+
+zip -j $newdir/designatedlands.shp.zip \
   $newdir/designatedlands.shp \
   $newdir/designatedlands.dbf \
   $newdir/designatedlands.shx \
   $newdir/designatedlands.prj \
+  $newdir/designatedlands.qix \
   $newdir/designatedlands_overlaps.shp \
   $newdir/designatedlands_overlaps.dbf \
   $newdir/designatedlands_overlaps.shx \
-  $newdir/designatedlands_overlaps.prj
+  $newdir/designatedlands_overlaps.prj \
+  $newdir/designatedlands_overlaps.qix
 
 zip $newdir/designatedlands.gpkg.zip designatedlands.gpkg
 
