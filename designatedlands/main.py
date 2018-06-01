@@ -376,7 +376,7 @@ def dump(overlaps, aggregate):
             config['out_table'] = config['out_table'] + '_overlaps'
         db = pgdata.connect(config["db_url"], schema="public")
         util.log('Dumping %s to %s' % (config['out_table'], config['out_file']))
-        columns = [c for c in db[config['out_table']].columns if c != 'geom']
+        columns = [c for c in db[config['out_table']].columns if c != 'geom' and 'prelim' not in c]
         ogr_sql = """SELECT {cols},
                     st_safe_repair(st_snaptogrid(geom, .001)) as geom
                     FROM {t}
