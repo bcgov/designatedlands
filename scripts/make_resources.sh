@@ -49,6 +49,10 @@ zip -j $newdir/designatedlands.shp.zip \
   $newdir/designatedlands_overlaps.prj \
   $newdir/designatedlands_overlaps.qix
 
-zip $newdir/designatedlands.gpkg.zip designatedlands.gpkg
+zip -j $newdir/designatedlands.gpkg.zip designatedlands.gpkg
 
 find $newdir ! -name '*.zip' -delete
+
+echo "Before uploading to release, open the shapefiles in ArcCatalog and add an Arc spatial index, 
+since ArcGIS doesn't read the ogr spatial index (.qix). Right-click on the shapefile in ArCatalog, 
+choose 'Indexes' tab, and click 'Add'. Then re-zip."
