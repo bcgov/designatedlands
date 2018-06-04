@@ -378,7 +378,7 @@ def dump(overlaps, aggregate):
         util.log('Dumping %s to %s' % (config['out_table'], config['out_file']))
         columns = [c for c in db[config['out_table']].columns if c != 'geom' and 'prelim' not in c]
         ogr_sql = """SELECT {cols},
-                    st_safe_repair(st_snaptogrid(geom, .001)) as geom
+                    st_collectionextract(st_safe_repair(st_snaptogrid(geom, .001)), 3) as geom
                     FROM {t}
                     WHERE designation IS NOT NULL
                 """.format(
