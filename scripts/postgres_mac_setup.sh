@@ -19,7 +19,6 @@ log_min_duration_statement = 2000
 
 max_connections = 100
 max_locks_per_transaction = 64
-shared_buffers = 128MB			# min 128kB
 dynamic_shared_memory_type = posix
 checkpoint_timeout = 30min		# range 30s-1d
 maintenance_work_mem = 1GB
