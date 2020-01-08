@@ -20,39 +20,16 @@ import tempfile
 import urllib.request
 from urllib.parse import urlparse
 import zipfile
+import subprocess
 
 import fiona
+
 import bcdata
 
 from designatedlands import util
 
 CHUNK_SIZE = 1024
 
-
-def download_bcgw(url, dl_path, email, force_download=False):
-    """Download BCGW data using bcdata/DWDS
-    """
-    # derive databc package name from the url
-    package = os.path.split(urlparse(url).path)[1]
-    # get schema/table from DataBC API
-    package_info = bcdata.package_show(package)
-    object_name = package_info['object_name']
-    schema = object_name.split('.')[0]
-    table = object_name.split('.')[1]
-    # dwds download naming is consistent
-    out_gdb = table + '.gdb'
-    out_folder = os.path.join(dl_path, out_gdb)
-    layer = schema + '_' + table
-    if force_download and os.path.exists(out_folder):
-        shutil.rmtree(out_folder)
-    if not os.path.exists(out_folder):
-        util.log('Downloading %s' % package)
-        download = bcdata.download(package, email)
-        if not download:
-            raise Exception("Failed to download " + package)
-
-        shutil.copytree(download, out_folder)
-    return (out_folder, layer)
 
 
 def download_non_bcgw(url, path, filename, layer=None, force_download=False):

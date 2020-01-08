@@ -85,27 +85,6 @@ def cli():
 
 
 @cli.command()
-def create_db():
-    """Create a fresh database
-    """
-    util.log('Creating database %s' % config['db_url'])
-    pgdata.create_db(config["db_url"])
-    db = pgdata.connect(config["db_url"])
-    db.execute("CREATE EXTENSION IF NOT EXISTS postgis")
-    # the pgxn extension does not work on windows
-    # note to the user to add lostgis functions manually with provided
-    # .bat file as a reference
-    if os.name == 'posix':
-        db.execute("CREATE EXTENSION IF NOT EXISTS lostgis")
-    else:
-        util.log(
-            'Remember to add required lostgis functions to your new database',
-            level=30,
-        )
-        util.log('See scripts\lostgis_windows.bat as a guide', level=30)
-
-
-@cli.command()
 @click.option('--alias', '-a', help=HELP['alias'])
 @click.option(
     '--force_download',
@@ -118,6 +97,7 @@ def load(alias, force_download):
     """
     db = pgdata.connect(config["db_url"])
     sources = util.read_csv(config["source_csv"])
+
     # filter sources based on optional provided alias and ignoring excluded
     if alias:
         sources = [s for s in sources if s["alias"] == alias]
@@ -125,18 +105,33 @@ def load(alias, force_download):
             raise ValueError('Alias %s does not exist' % alias)
 
     sources = [s for s in sources if s["exclude"] != 'T']
-    # process sources where automated downloads are avaiable
+
     load_commands = []
+
+    # download everything that we can automate
     for source in [s for s in sources if s["manual_download"] != 'T']:
-        # handle BCGW downloads
+
+        # run BCGW downloads directly (bcdata has its own parallelization)
         if urlparse(source["url"]).hostname == 'catalogue.data.gov.bc.ca':
-            file, layer = download.download_bcgw(
-                source["url"],
-                config["dl_path"],
-                email=config["email"],
-                force_download=force_download,
-            )
-        # handle all other downloads (zipfiles only)
+            # derive databc package name from the url
+            package = os.path.split(urlparse(source["url"]).path)[1]
+            cmd = [
+                "bcdata",
+                "bc2pg",
+                package,
+                "--db_url",
+                config["db_url"],
+                "--schema",
+                "public",
+                "--table",
+                source["input_table"]
+            ]
+            if source["query"]:
+                cmd = cmd + ["--query", source["query"]]
+            click.echo(" ".join(cmd))
+            subprocess.run(cmd)
+
+        # create list of non-bcgw downloads
         else:
             file, layer = download.download_non_bcgw(
                 source['url'],
@@ -145,16 +140,17 @@ def load(alias, force_download):
                 source['layer_in_file'],
                 force_download=force_download,
             )
-        load_commands.append(
-            db.ogr2pg(
-                file,
-                in_layer=layer,
-                out_layer=source["input_table"],
-                sql=source["query"],
-                cmd_only=True,
+            load_commands.append(
+                db.ogr2pg(
+                    file,
+                    in_layer=layer,
+                    out_layer=source["input_table"],
+                    sql=source["query"],
+                    cmd_only=True,
+                )
             )
-        )
-    # process manually downloaded sources
+
+    # find manually downloaded sources
     for source in [s for s in sources if s["manual_download"] == 'T']:
         file = os.path.join(config['dl_path'], source["file_in_url"])
         if not os.path.exists(file):
@@ -169,7 +165,8 @@ def load(alias, force_download):
                 cmd_only=True,
             )
         )
-    # run all ogr commands in parallel
+
+    # run non-bcgw load commands in parallel
     util.log('Loading source data to database.')
     # https://stackoverflow.com/questions/14533458/python-threading-multiple-bash-subprocesses
     processes = [subprocess.Popen(cmd, shell=True) for cmd in load_commands]
@@ -179,9 +176,11 @@ def load(alias, force_download):
     #for cmd in load_commands:
     #    util.log(cmd)
     #    subprocess.call(cmd, shell=True)
-    # create tiles layer
-    util.log('Creating tiles layer')
-    db.execute(db.queries["create_tiles"])
+
+    # create tiles layer if 20k tiles source is present
+    if "tiles" not in db.tables and "a00_tiles_20k" in db.tables:
+        util.log('Creating tiles layer')
+        db.execute(db.queries["create_tiles"])
 
 
 @cli.command()
