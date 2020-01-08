@@ -49,9 +49,7 @@ def parse_tiles(db, tiles):
     if tiles:
         for tile_token in tiles.split(","):
             sql = "SELECT DISTINCT map_tile FROM tiles WHERE map_tile LIKE %s"
-            tiles20 = [
-                r[0] for r in db.query(sql, (tile_token + '%',)).fetchall()
-            ]
+            tiles20 = [r[0] for r in db.query(sql, (tile_token + "%",)).fetchall()]
             tilelist = tilelist + tiles20
     return tilelist
 
@@ -74,7 +72,7 @@ def parallel_tiled(db_url, sql, tile, n_subs=2):
 def clip(db, in_table, clip_table, out_table):
     """Clip geometry of in_table by clip_table, writing output to out_table
     """
-    columns = ["a." + c for c in db[in_table].columns if c != 'geom']
+    columns = ["a." + c for c in db[in_table].columns if c != "geom"]
     db[out_table].drop()
     sql = """CREATE UNLOGGED TABLE {temp} AS
              SELECT
@@ -93,9 +91,7 @@ def clip(db, in_table, clip_table, out_table):
         in_table=in_table,
         clip_table=clip_table,
     )
-    util.log(
-        'Clipping %s by %s to create %s' % (in_table, clip_table, out_table)
-    )
+    util.log("Clipping %s by %s to create %s" % (in_table, clip_table, out_table))
     db.execute(sql)
 
 
@@ -113,8 +109,7 @@ def union(db, in_table, columns, out_table):
         temp=out_table, columns=columns, in_table=in_table
     )
     util.log(
-        'Unioning geometries in %s by %s to create %s' %
-        (in_table, columns, out_table)
+        "Unioning geometries in %s by %s to create %s" % (in_table, columns, out_table)
     )
     db.execute(sql)
 
@@ -129,16 +124,14 @@ def tile_sources(db, source_csv, alias=None, force=False):
     sources = util.read_csv(source_csv)
     # process only the source layer specified
     if alias:
-        sources = [s for s in sources if s['alias'] == alias]
+        sources = [s for s in sources if s["alias"] == alias]
     # for all designated lands sources:
     # - create new table name prefixed with b_<hierarchy>
     # - create and populate standard columns:
     #     - designation (equivalent to source's alias in sources.csv)
     #     - designation_id (unique id of source feature)
     #     - designation_name (name of source feature)
-    tile_sources = [
-        s for s in sources if s["exclude"] != 'T' and s['hierarchy'] != 0
-    ]
+    tile_sources = [s for s in sources if s["exclude"] != "T" and s["hierarchy"] != 0]
     for source in tile_sources:
         if source["tiled_table"] not in db.tables or force:
             util.log("Tiling and validating: %s" % source["alias"])
@@ -163,13 +156,11 @@ def clean_and_agg_sources(db, source_csv, alias=None, force=False):
     sources = util.read_csv(source_csv)
     # process only the source layer specified
     if alias:
-        sources = [s for s in sources if s['alias'] == alias]
+        sources = [s for s in sources if s["alias"] == alias]
     # for all designated lands sources:
     # - create new table name prefixed with c_<hierarchy>
     # - aggregate by designation, tile
-    clean_sources = [
-        s for s in sources if s["exclude"] != 'T' and s['hierarchy'] != 0
-    ]
+    clean_sources = [s for s in sources if s["exclude"] != "T" and s["hierarchy"] != 0]
     for source in clean_sources:
         if source["cleaned_table"] not in db.tables or force:
             util.log("Cleaning and aggregating: %s" % source["alias"])
@@ -192,28 +183,26 @@ def preprocess(db, source_csv, alias=None, force=False):
     sources = util.read_csv(source_csv)
     # process only the source layer specified
     if alias:
-        sources = [s for s in sources if s['alias'] == alias]
-    preprocess_sources = [
-        s for s in sources if s["preprocess_operation"] != ''
-    ]
+        sources = [s for s in sources if s["alias"] == alias]
+    preprocess_sources = [s for s in sources if s["preprocess_operation"] != ""]
     for source in preprocess_sources:
         if source["input_table"] + "_preprc" not in db.tables or force:
             util.log("Preprocessing: %s" % source["alias"])
-            if source['preprocess_operation'] not in ['clip', 'union']:
+            if source["preprocess_operation"] not in ["clip", "union"]:
                 raise ValueError(
-                    'Preprocess operation %s not supprted' %
-                    source['preprocess_operation']
+                    "Preprocess operation %s not supprted"
+                    % source["preprocess_operation"]
                 )
 
             # prefix clip layer name with 'a00', only non tiled, non hierarchy
             # clip layers are suppported
-            if source['preprocess_operation'] == 'clip':
+            if source["preprocess_operation"] == "clip":
                 source["preprocess_args"] = "a00_" + source["preprocess_args"]
             # call the specified preprocess function
             globals()[source["preprocess_operation"]](
                 db,
                 source["input_table"],
-                source['preprocess_args'],
+                source["preprocess_args"],
                 source["input_table"] + "_preprc",
             )
             # overwrite the tiled table with the preprocessed table, but
@@ -222,7 +211,9 @@ def preprocess(db, source_csv, alias=None, force=False):
             db.execute(
                 """CREATE TABLE {t} AS
                    SELECT * FROM {temp}
-                """.format(t=source["input_table"], temp=source["input_table"] + "_preprc")
+                """.format(
+                    t=source["input_table"], temp=source["input_table"] + "_preprc"
+                )
             )
             # re-create spatial index
             db[source["input_table"]].create_index_geom()
@@ -238,7 +229,7 @@ def create_bc_boundary(db, n_processes):
     - marine_ecosections (BC Marine Ecosections)
     """
     # create land/marine definition table
-    db.execute(db.queries['create_bc_boundary'])
+    db.execute(db.queries["create_bc_boundary"])
     # Prep boundary sources
     # First, combine ABMS boundary and marine ecosections
     db["bc_boundary_marine"].drop()
@@ -255,20 +246,20 @@ def create_bc_boundary(db, n_processes):
                    GROUP BY designation"""
     )
     for source in ["a00_bc_boundary_land", "a00_bc_boundary_marine"]:
-        util.log('Prepping and inserting into bc_boundary: %s' % source)
+        util.log("Prepping and inserting into bc_boundary: %s" % source)
         # subdivide before attempting to tile
         db["temp_" + source].drop()
         db.execute(
             """CREATE UNLOGGED TABLE temp_{t} AS
                       SELECT ST_Subdivide(geom) as geom
-                      FROM {t}""".format(t=source)
+                      FROM {t}""".format(
+                t=source
+            )
         )
         db["temp_" + source].create_index_geom()
         # tile
         db[source + "_tiled"].drop()
-        lookup = {
-            "src_table": "temp_" + source, "out_table": source + "_tiled"
-        }
+        lookup = {"src_table": "temp_" + source, "out_table": source + "_tiled"}
         db.execute(db.build_query(db.queries["prep1_merge_tile_b"], lookup))
         db["temp_" + source].drop()
         # combine the boundary layers into new table bc_boundary
@@ -289,9 +280,7 @@ def create_bc_boundary(db, n_processes):
     )
 
 
-def intersect(
-    db, in_table, intersect_table, out_table, n_processes, tiles=None
-):
+def intersect(db, in_table, intersect_table, out_table, n_processes, tiles=None):
     """
     Intersect in_table with intersect_table, creating out_table
     Inputs may not have equivalently named columns
@@ -301,36 +290,27 @@ def intersect(
     intersect_columns = [
         Column(c.name, c.type)
         for c in db[intersect_table].sqla_columns
-        if c.name not in ['geom', 'map_tile']
+        if c.name not in ["geom", "map_tile"]
     ]
     # make sure output column names are unique, removing geom and map_tile from
     # the list as they are hard coded into the query
     in_names = set(
-        [
-            c.name
-            for c in in_columns
-            if c.name != 'geom' and c.name != 'map_tile'
-        ]
+        [c.name for c in in_columns if c.name != "geom" and c.name != "map_tile"]
     )
     intersect_names = set([c.name for c in intersect_columns])
     # test for non-unique columns in input (other than map_tile and geom)
     non_unique_columns = in_names.intersection(intersect_names)
     if non_unique_columns:
-        util.log(
-            'Column(s) found in both sources: %s' %
-            ",".join(non_unique_columns)
-        )
+        util.log("Column(s) found in both sources: %s" % ",".join(non_unique_columns))
         raise Exception("Input column names must be unique")
 
     # create output table
     db[out_table].drop()
     # add primary key
     pk = Column(out_table + "_id", Integer, primary_key=True)
-    pgdata.Table(
-        db, "public", out_table, [pk] + in_columns + intersect_columns
-    )
+    pgdata.Table(db, "public", out_table, [pk] + in_columns + intersect_columns)
     # populate the output table
-    if 'map_tile' not in [c.name for c in db[intersect_table].sqla_columns]:
+    if "map_tile" not in [c.name for c in db[intersect_table].sqla_columns]:
         query = "intersect_inputtiled"
         tile_table = "tiles"
         sql = db.build_query(
@@ -372,13 +352,17 @@ def intersect(
     # delete any records with empty geometries in the out table
     db.execute(
         """DELETE FROM {t} WHERE ST_IsEmpty(geom) = True
-               """.format(t=out_table)
+               """.format(
+            t=out_table
+        )
     )
     # add map_tile index to output
     db.execute(
         """CREATE INDEX {t}_tileix
                   ON {t} (map_tile text_pattern_ops)
-               """.format(t=out_table)
+               """.format(
+            t=out_table
+        )
     )
 
 
@@ -407,22 +391,20 @@ def dump_aggregate(config, new_layer_name):
     """
     # config = util.read_config(config)
     db = pgdata.connect(config["db_url"], schema="public")
-    util.log('Aggregating %s to %s' % (config['out_table'], new_layer_name))
+    util.log("Aggregating %s to %s" % (config["out_table"], new_layer_name))
     # find all non-null designations
-    designations = [
-        d for d in db[config['out_table']].distinct('designation') if d
-    ]
+    designations = [d for d in db[config["out_table"]].distinct("designation") if d]
     db[new_layer_name].drop()
     sql = """CREATE TABLE {new_layer_name} AS
              SELECT designation, category, bc_boundary, geom
              FROM {out_table}
              LIMIT 0""".format(
-        new_layer_name=new_layer_name, out_table=config['out_table']
+        new_layer_name=new_layer_name, out_table=config["out_table"]
     )
     db.execute(sql)
     # iterate through designations to speed up the aggregation
     for designation in designations:
-        util.log('Adding %s to %s' % (designation, new_layer_name))
+        util.log("Adding %s to %s" % (designation, new_layer_name))
         # dump records entirely within a tile
         sql = """
         INSERT INTO {new_layer_name} (designation, category, bc_boundary, geom)
@@ -436,7 +418,7 @@ def dump_aggregate(config, new_layer_name):
         WHERE dl.designation = %s
         AND ST_Coveredby(dl.geom, ST_Buffer(tiles.geom, -.01))
         """.format(
-            t=config['out_table'], new_layer_name=new_layer_name
+            t=config["out_table"], new_layer_name=new_layer_name
         )
         db.execute(sql, (designation,))
         # aggregate cross-tile records
@@ -469,13 +451,13 @@ def dump_aggregate(config, new_layer_name):
         AND NOT ST_Coveredby(dl.geom, ST_Buffer(tiles.geom, -.01))
         GROUP BY dl.designation, dl.category, dl.bc_boundary) as foo
         """.format(
-            t=config['out_table'], new_layer_name=new_layer_name
+            t=config["out_table"], new_layer_name=new_layer_name
         )
         db.execute(sql, (designation,))
-    util.log('Dumping %s to file %s' % (new_layer_name, config['out_file']))
+    util.log("Dumping %s to file %s" % (new_layer_name, config["out_file"]))
     db.pg2ogr(
         "SELECT * from " + new_layer_name,
-        config['out_format'],
-        config['out_file'],
+        config["out_format"],
+        config["out_file"],
         new_layer_name,
     )

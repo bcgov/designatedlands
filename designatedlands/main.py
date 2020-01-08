@@ -29,7 +29,7 @@ from designatedlands import util
 from designatedlands.config import config
 
 HELP = {
-    "cfg": 'Path to designatedlands config file',
+    "cfg": "Path to designatedlands config file",
     "alias": "The 'alias' key for the source of interest",
 }
 
@@ -55,7 +55,9 @@ def tidy_designations(db, sources, designation_key, out_table):
         db.execute(
             """ALTER TABLE {t}
                       ADD COLUMN category TEXT
-                   """.format(t=out_table)
+                   """.format(
+                t=out_table
+            )
         )
     # populate category column from lookup
     db.execute(
@@ -63,7 +65,9 @@ def tidy_designations(db, sources, designation_key, out_table):
                   SET category = lut.category
                   FROM category_lookup AS lut
                   WHERE o.designation = lut.alias
-               """.format(t=out_table)
+               """.format(
+            t=out_table
+        )
     )
     # Remove prefrixes and national park names from the designations tags
     sql = """UPDATE {t}
@@ -85,12 +89,9 @@ def cli():
 
 
 @cli.command()
-@click.option('--alias', '-a', help=HELP['alias'])
+@click.option("--alias", "-a", help=HELP["alias"])
 @click.option(
-    '--force_download',
-    is_flag=True,
-    default=False,
-    help='Force fresh download',
+    "--force_download", is_flag=True, default=False, help="Force fresh download"
 )
 def load(alias, force_download):
     """Download data, load to postgres
@@ -102,17 +103,17 @@ def load(alias, force_download):
     if alias:
         sources = [s for s in sources if s["alias"] == alias]
         if not sources:
-            raise ValueError('Alias %s does not exist' % alias)
+            raise ValueError("Alias %s does not exist" % alias)
 
-    sources = [s for s in sources if s["exclude"] != 'T']
+    sources = [s for s in sources if s["exclude"] != "T"]
 
     load_commands = []
 
     # download everything that we can automate
-    for source in [s for s in sources if s["manual_download"] != 'T']:
+    for source in [s for s in sources if s["manual_download"] != "T"]:
 
         # run BCGW downloads directly (bcdata has its own parallelization)
-        if urlparse(source["url"]).hostname == 'catalogue.data.gov.bc.ca':
+        if urlparse(source["url"]).hostname == "catalogue.data.gov.bc.ca":
             # derive databc package name from the url
             package = os.path.split(urlparse(source["url"]).path)[1]
             cmd = [
@@ -124,7 +125,7 @@ def load(alias, force_download):
                 "--schema",
                 "public",
                 "--table",
-                source["input_table"]
+                source["input_table"],
             ]
             if source["query"]:
                 cmd = cmd + ["--query", source["query"]]
@@ -134,10 +135,10 @@ def load(alias, force_download):
         # create list of non-bcgw downloads
         else:
             file, layer = download.download_non_bcgw(
-                source['url'],
-                config['dl_path'],
-                source['file_in_url'],
-                source['layer_in_file'],
+                source["url"],
+                config["dl_path"],
+                source["file_in_url"],
+                source["layer_in_file"],
                 force_download=force_download,
             )
             load_commands.append(
@@ -151,15 +152,15 @@ def load(alias, force_download):
             )
 
     # find manually downloaded sources
-    for source in [s for s in sources if s["manual_download"] == 'T']:
-        file = os.path.join(config['dl_path'], source["file_in_url"])
+    for source in [s for s in sources if s["manual_download"] == "T"]:
+        file = os.path.join(config["dl_path"], source["file_in_url"])
         if not os.path.exists(file):
             raise Exception(file + " does not exist, download it manually")
 
         load_commands.append(
             db.ogr2pg(
                 file,
-                in_layer=source['layer_in_file'],
+                in_layer=source["layer_in_file"],
                 out_layer=source["input_table"],
                 sql=source["query"],
                 cmd_only=True,
@@ -167,45 +168,39 @@ def load(alias, force_download):
         )
 
     # run non-bcgw load commands in parallel
-    util.log('Loading source data to database.')
+    util.log("Loading source data to database.")
     # https://stackoverflow.com/questions/14533458/python-threading-multiple-bash-subprocesses
     processes = [subprocess.Popen(cmd, shell=True) for cmd in load_commands]
     for p in processes:
         p.wait()
     # log ogr statements for debugging
-    #for cmd in load_commands:
+    # for cmd in load_commands:
     #    util.log(cmd)
     #    subprocess.call(cmd, shell=True)
 
     # create tiles layer if 20k tiles source is present
     if "tiles" not in db.tables and "a00_tiles_20k" in db.tables:
-        util.log('Creating tiles layer')
+        util.log("Creating tiles layer")
         db.execute(db.queries["create_tiles"])
 
 
 @cli.command()
+@click.option("--resume", "-r", help="hierarchy number at which to resume processing")
 @click.option(
-    '--resume', '-r', help='hierarchy number at which to resume processing'
-)
-@click.option(
-    '--force_preprocess',
+    "--force_preprocess",
     is_flag=True,
     default=False,
     help="Force re-preprocessing of input data",
 )
-@click.option(
-    '--tiles', default=None, help="Comma separated list of tiles to process"
-)
+@click.option("--tiles", default=None, help="Comma separated list of tiles to process")
 def process(resume, force_preprocess, tiles):
     """Create output designatedlands tables
     """
     db = pgdata.connect(config["db_url"], schema="public")
     # run required preprocessing, tile, attempt to clean inputs
-    geoutil.preprocess(db, config['source_csv'], force=force_preprocess)
-    geoutil.tile_sources(db, config['source_csv'], force=force_preprocess)
-    geoutil.clean_and_agg_sources(
-        db, config['source_csv'], force=force_preprocess
-    )
+    geoutil.preprocess(db, config["source_csv"], force=force_preprocess)
+    geoutil.tile_sources(db, config["source_csv"], force=force_preprocess)
+    geoutil.clean_and_agg_sources(db, config["source_csv"], force=force_preprocess)
     # parse the list of tiles
     tilelist = geoutil.parse_tiles(db, tiles)
     # create target tables if not resuming from a bailed process
@@ -213,29 +208,27 @@ def process(resume, force_preprocess, tiles):
         # create output tables
         db.execute(
             db.build_query(
-                db.queries["create_outputs_prelim"],
-                {"table": config['out_table']},
+                db.queries["create_outputs_prelim"], {"table": config["out_table"]}
             )
         )
     # filter sources - use only non-exlcuded sources with hierarchy > 0
     sources = [
         s
-        for s in util.read_csv(config['source_csv'])
-        if s['hierarchy'] != 0 and s["exclude"] != 'T'
+        for s in util.read_csv(config["source_csv"])
+        if s["hierarchy"] != 0 and s["exclude"] != "T"
     ]
     # To create output table with overlaps, combine all source data
     # (tiles argument does not apply, we could build a tile query string but
     # it seems unnecessary)
     for source in sources:
         util.log(
-            "Inserting %s into preliminary output overlap table" %
-            source["tiled_table"]
+            "Inserting %s into preliminary output overlap table" % source["tiled_table"]
         )
         sql = db.build_query(
             db.queries["populate_output_overlaps"],
             {
                 "in_table": source["tiled_table"],
-                "out_table": config['out_table'] + "_overlaps_prelim",
+                "out_table": config["out_table"] + "_overlaps_prelim",
             },
         )
         db.execute(sql)
@@ -259,12 +252,12 @@ def process(resume, force_preprocess, tiles):
             db.queries["populate_output"],
             {
                 "in_table": source["cleaned_table"],
-                "out_table": config['out_table'] + "_prelim",
+                "out_table": config["out_table"] + "_prelim",
             },
         )
         # determine which specified tiles are present in source layer
         src_tiles = set(
-            geoutil.get_tiles(db, source["cleaned_table"], tile_table='tiles')
+            geoutil.get_tiles(db, source["cleaned_table"], tile_table="tiles")
         )
         if tilelist:
             tiles = set(tilelist) & src_tiles
@@ -272,61 +265,48 @@ def process(resume, force_preprocess, tiles):
             tiles = src_tiles
         if tiles:
             util.log(
-                "Inserting %s into preliminary output table" %
-                source["cleaned_table"]
+                "Inserting %s into preliminary output table" % source["cleaned_table"]
             )
             # for testing, run only one process and report on tile
-            if config['n_processes'] == 1:
+            if config["n_processes"] == 1:
                 for tile in tiles:
                     util.log(tile)
                     db.execute(sql, (tile + "%",) * 2)
             else:
                 func = partial(geoutil.parallel_tiled, db.url, sql, n_subs=2)
-                pool = multiprocessing.Pool(processes=config['n_processes'])
+                pool = multiprocessing.Pool(processes=config["n_processes"])
                 pool.map(func, tiles)
                 pool.close()
                 pool.join()
         else:
             util.log("No tiles to process")
     # create marine-terrestrial layer
-    if 'bc_boundary' not in db.tables:
-        geoutil.create_bc_boundary(db, config['n_processes'])
+    if "bc_boundary" not in db.tables:
+        geoutil.create_bc_boundary(db, config["n_processes"])
 
     # overlay output tables with marine-terrestrial definition
-    for table in [config['out_table'], config['out_table'] + "_overlaps"]:
-        util.log(
-            'Cutting %s with marine-terrestrial definition' % table
-        )
+    for table in [config["out_table"], config["out_table"] + "_overlaps"]:
+        util.log("Cutting %s with marine-terrestrial definition" % table)
         geoutil.intersect(
-            db,
-            table + "_prelim",
-            "bc_boundary",
-            table,
-            config['n_processes'],
-            tiles,
+            db, table + "_prelim", "bc_boundary", table, config["n_processes"], tiles
         )
 
-    tidy_designations(db, sources, "cleaned_table", config['out_table'])
-    tidy_designations(
-        db, sources, "tiled_table", config['out_table'] + "_overlaps"
-    )
+    tidy_designations(db, sources, "cleaned_table", config["out_table"])
+    tidy_designations(db, sources, "tiled_table", config["out_table"] + "_overlaps")
 
 
 @cli.command()
-@click.argument('in_file', type=click.Path(exists=True))
-@click.option('--in_layer', '-l', help="Input layer name")
+@click.argument("in_file", type=click.Path(exists=True))
+@click.option("--in_layer", "-l", help="Input layer name")
 @click.option(
-    '--dump_file',
-    is_flag=True,
-    default=False,
-    help="Dump to file (out_file in .cfg)",
+    "--dump_file", is_flag=True, default=False, help="Dump to file (out_file in .cfg)"
 )
-@click.option('--new_layer_name', '-nln', help="Name of overlay output layer")
+@click.option("--new_layer_name", "-nln", help="Name of overlay output layer")
 def overlay(in_file, in_layer, dump_file, new_layer_name):
     """Intersect layer with designatedlands
     """
     # load in_file to postgres
-    db = pgdata.connect(config['db_url'], schema="public")
+    db = pgdata.connect(config["db_url"], schema="public")
     if not in_layer:
         in_layer = fiona.listlayers(in_file)[0]
     if not new_layer_name:
@@ -334,62 +314,60 @@ def overlay(in_file, in_layer, dump_file, new_layer_name):
     out_layer = new_layer_name[:50] + "_overlay"
     db.ogr2pg(in_file, in_layer=in_layer, out_layer=new_layer_name)
     # pull distinct tiles iterable into a list
-    tiles = [t for t in db["tiles"].distinct('map_tile')]
+    tiles = [t for t in db["tiles"].distinct("map_tile")]
     # uncomment and adjust for debugging a specific tile
     # tiles = [t for t in tiles if t[:4] == '092K']
-    util.log("Intersecting %s with %s" % (config['out_table'], new_layer_name))
+    util.log("Intersecting %s with %s" % (config["out_table"], new_layer_name))
     geoutil.intersect(
-        db,
-        config['out_table'],
-        new_layer_name,
-        out_layer,
-        config['n_processes'],
-        tiles,
+        db, config["out_table"], new_layer_name, out_layer, config["n_processes"], tiles
     )
     # dump result to file
     if dump_file:
-        util.log("Dumping intersect to file %s " % config['out_file'])
-        dump(out_layer, config['out_file'], config['out_format'])
+        util.log("Dumping intersect to file %s " % config["out_file"])
+        dump(out_layer, config["out_file"], config["out_format"])
 
 
 @cli.command()
 @click.option(
-    '--overlaps',
+    "--overlaps",
     is_flag=True,
     default=False,
     help="Dump output _overlaps table to file",
 )
-@click.option('--aggregate',
-    is_flag=True,
-    default=False,
-    help="Aggregate over tile boundaries")
+@click.option(
+    "--aggregate", is_flag=True, default=False, help="Aggregate over tile boundaries"
+)
 def dump(overlaps, aggregate):
     """Dump output designatedlands table to file
     """
     if aggregate:
         if overlaps:
-            util.log('ignoring --overlaps flag')
-        geoutil.dump_aggregate(config, 'designatedlands_agg')
+            util.log("ignoring --overlaps flag")
+        geoutil.dump_aggregate(config, "designatedlands_agg")
     else:
         if overlaps:
-            config['out_table'] = config['out_table'] + '_overlaps'
+            config["out_table"] = config["out_table"] + "_overlaps"
         db = pgdata.connect(config["db_url"], schema="public")
-        util.log('Dumping %s to %s' % (config['out_table'], config['out_file']))
-        columns = [c for c in db[config['out_table']].columns if c != 'geom' and 'prelim' not in c]
+        util.log("Dumping %s to %s" % (config["out_table"], config["out_file"]))
+        columns = [
+            c
+            for c in db[config["out_table"]].columns
+            if c != "geom" and "prelim" not in c
+        ]
         ogr_sql = """SELECT {cols},
                     st_collectionextract(st_safe_repair(st_snaptogrid(geom, .001)), 3) as geom
                     FROM {t}
                     WHERE designation IS NOT NULL
                 """.format(
-            cols=",".join(columns), t=config['out_table']
+            cols=",".join(columns), t=config["out_table"]
         )
         util.log(ogr_sql)
         db = pgdata.connect(config["db_url"])
         db.pg2ogr(
             ogr_sql,
-            config['out_format'],
-            config['out_file'],
-            config['out_table'],
+            config["out_format"],
+            config["out_file"],
+            config["out_table"],
             geom_type="MULTIPOLYGON",
         )
 
@@ -404,5 +382,5 @@ def run_all(config):
     dump(config)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     cli()

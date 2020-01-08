@@ -31,7 +31,6 @@ from designatedlands import util
 CHUNK_SIZE = 1024
 
 
-
 def download_non_bcgw(url, path, filename, layer=None, force_download=False):
     """
     Download and extract a zipfile to unique location
@@ -39,18 +38,16 @@ def download_non_bcgw(url, path, filename, layer=None, force_download=False):
     """
     # create a unique name for downloading and unzipping, this ensures a given
     # url will only get downloaded once
-    out_folder = os.path.join(
-        path, hashlib.sha224(url.encode('utf-8')).hexdigest()
-    )
+    out_folder = os.path.join(path, hashlib.sha224(url.encode("utf-8")).hexdigest())
     out_file = os.path.join(out_folder, filename)
     if force_download and os.path.exists(out_folder):
         shutil.rmtree(out_folder)
     if not os.path.exists(out_folder):
-        util.log('Downloading ' + url)
+        util.log("Downloading " + url)
         parsed_url = urlparse(url)
-        urlfile = parsed_url.path.split('/')[-1]
+        urlfile = parsed_url.path.split("/")[-1]
         _, extension = os.path.split(urlfile)
-        fp = tempfile.NamedTemporaryFile('wb', suffix=extension, delete=False)
+        fp = tempfile.NamedTemporaryFile("wb", suffix=extension, delete=False)
         if parsed_url.scheme == "http" or parsed_url.scheme == "https":
             res = requests.get(url, stream=True, verify=False)
             if not res.ok:
@@ -72,7 +69,7 @@ def download_non_bcgw(url, path, filename, layer=None, force_download=False):
         fp.close()
         # extract zipfile
         unzip_dir = util.make_sure_path_exists(out_folder)
-        util.log('Extracting %s to %s' % (fp.name, unzip_dir))
+        util.log("Extracting %s to %s" % (fp.name, unzip_dir))
         zipped_file = get_compressed_file_wrapper(fp.name)
         zipped_file.extractall(unzip_dir)
         zipped_file.close()
@@ -126,10 +123,10 @@ def get_compressed_file_wrapper(path):
         raise Exception("Unable to determine archive format")
 
     if archive_format == ARCHIVE_FORMAT_ZIP:
-        return zipfile.ZipFile(path, 'r')
+        return zipfile.ZipFile(path, "r")
 
     elif archive_format == ARCHIVE_FORMAT_TAR_GZ:
-        return ZipCompatibleTarFile.open(path, 'r:gz')
+        return ZipCompatibleTarFile.open(path, "r:gz")
 
     elif archive_format == ARCHIVE_FORMAT_TAR_BZ2:
-        return ZipCompatibleTarFile.open(path, 'r:bz2')
+        return ZipCompatibleTarFile.open(path, "r:bz2")
