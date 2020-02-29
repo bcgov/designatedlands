@@ -18,7 +18,7 @@ Get the [container](https://hub.docker.com/r/crunchydata/crunchy-postgres-appdev
 
 Modify and run this command as per your requirements (matching the parameters within the `db_url` variable in the `designatedlands.cfg` file):
 
-`docker run -d -p 5432:5432 -e PG_USER=designatedlands -e PG_PASSWORD=password -e PG_DATABASE=designatedlands --name=pgsql crunchydata/crunchy-postgres-appdev`
+`docker run -d -p 5433:5432 -e PG_USER=designatedlands -e PG_PASSWORD=password -e PG_DATABASE=designatedlands --name=pgsql crunchydata/crunchy-postgres-appdev`
 
 Running the container like this:
 
