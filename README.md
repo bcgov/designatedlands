@@ -43,8 +43,9 @@ A complete run of the tool was completed on Sept 21, 2017, and the results are r
 
      First, download the appropriate prebuilt wheel for Fiona following [this guide](https://github.com/Toblerity/Fiona#windows). The GDAL wheel may also be required. Install fiona using `pipenv`. Once fiona is installed, `pip install .` should work to install other dependencies.
 
-5. Add the `lostgis` functions to the database, adding database connection paramaters as required:
+5. Set the default schema and add the `lostgis` functions (adding database connection paramaters as required):
 
+    psql -c "ALTER ROLE designatedlands SET search_path TO public;"
     psql -f sql/ST_Safe_Difference.sql
     psql -f sql/ST_Safe_Intersection.sql
     psql -f sql/ST_Safe_Repair.sql
