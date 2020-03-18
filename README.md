@@ -11,7 +11,7 @@ A complete run of the tool was completed on Sept 21, 2017, and the results are r
 ## Requirements
 
 - Python 3.7+
-- GDAL (with `ogr2ogr` available at the command line) (tested with GDAL 2.4.2)
+- GDAL (with `ogr2ogr` available at the command line) (tested with GDAL 2.4.4)
 - a PostGIS enabled PostgreSQL database (tested with Postgres 11.6, PostGIS 2.5.3 via Docker container `crunchydata/crunchy-postgres-appdev`)
 
 
@@ -42,6 +42,12 @@ A complete run of the tool was completed on Sept 21, 2017, and the results are r
      **Windows**
 
      First, download the appropriate prebuilt wheel for Fiona following [this guide](https://github.com/Toblerity/Fiona#windows). The GDAL wheel may also be required. Install fiona using `pipenv`. Once fiona is installed, `pip install .` should work to install other dependencies.
+
+5. Add the `lostgis` functions to the database, adding database connection paramaters as required:
+
+    psql -f sql/ST_Safe_Difference.sql
+    psql -f sql/ST_Safe_Intersection.sql
+    psql -f sql/ST_Safe_Repair.sql
 
 
 ## Configuration

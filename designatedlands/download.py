@@ -20,11 +20,9 @@ import tempfile
 import urllib.request
 from urllib.parse import urlparse
 import zipfile
-import subprocess
 
 import fiona
 
-import bcdata
 
 from designatedlands import util
 

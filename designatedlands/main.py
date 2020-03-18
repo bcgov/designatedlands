@@ -96,7 +96,7 @@ def cli():
 def load(alias, force_download):
     """Download data, load to postgres
     """
-    db = pgdata.connect(config["db_url"])
+    db = pgdata.connect(config["db_url"], schema="public")
     sources = util.read_csv(config["source_csv"])
 
     # filter sources based on optional provided alias and ignoring excluded
@@ -107,76 +107,60 @@ def load(alias, force_download):
 
     sources = [s for s in sources if s["exclude"] != "T"]
 
-    load_commands = []
-
-    # download everything that we can automate
+    # download and load everything that we can automate
     for source in [s for s in sources if s["manual_download"] != "T"]:
+        if source["input_table"] not in db.tables or force_download:
 
-        # run BCGW downloads directly (bcdata has its own parallelization)
-        if urlparse(source["url"]).hostname == "catalogue.data.gov.bc.ca":
-            # derive databc package name from the url
-            package = os.path.split(urlparse(source["url"]).path)[1]
-            cmd = [
-                "bcdata",
-                "bc2pg",
-                package,
-                "--db_url",
-                config["db_url"],
-                "--schema",
-                "public",
-                "--table",
-                source["input_table"],
-            ]
-            if source["query"]:
-                cmd = cmd + ["--query", source["query"]]
-            click.echo(" ".join(cmd))
-            subprocess.run(cmd)
+            # run BCGW downloads directly (bcdata has its own parallelization)
+            if urlparse(source["url"]).hostname == "catalogue.data.gov.bc.ca":
 
-        # create list of non-bcgw downloads
-        else:
-            file, layer = download.download_non_bcgw(
-                source["url"],
-                config["dl_path"],
-                source["file_in_url"],
-                source["layer_in_file"],
-                force_download=force_download,
-            )
-            load_commands.append(
+                # derive databc package name from the url
+                package = os.path.split(urlparse(source["url"]).path)[1]
+                cmd = [
+                    "bcdata",
+                    "bc2pg",
+                    package,
+                    "--db_url",
+                    config["db_url"],
+                    "--schema",
+                    "public",
+                    "--table",
+                    source["input_table"],
+                ]
+                if source["query"]:
+                    cmd = cmd + ["--query", source["query"]]
+                click.echo(" ".join(cmd))
+                subprocess.run(cmd)
+
+            # run non-bcgw downloads
+            else:
+                click.echo("Loading "+source["input_table"])
+                file, layer = download.download_non_bcgw(
+                    source["url"],
+                    config["dl_path"],
+                    source["file_in_url"],
+                    source["layer_in_file"],
+                    force_download=force_download,
+                )
                 db.ogr2pg(
                     file,
                     in_layer=layer,
                     out_layer=source["input_table"],
-                    sql=source["query"],
-                    cmd_only=True,
+                    sql=source["query"]
                 )
-            )
 
-    # find manually downloaded sources
+    # find and load manually downloaded sources
     for source in [s for s in sources if s["manual_download"] == "T"]:
         file = os.path.join(config["dl_path"], source["file_in_url"])
         if not os.path.exists(file):
             raise Exception(file + " does not exist, download it manually")
-
-        load_commands.append(
-            db.ogr2pg(
-                file,
-                in_layer=source["layer_in_file"],
-                out_layer=source["input_table"],
-                sql=source["query"],
-                cmd_only=True,
-            )
-        )
-
-    # run non-bcgw load commands in parallel
-    util.log("Loading source data to database.")
-    # https://stackoverflow.com/questions/14533458/python-threading-multiple-bash-subprocesses
-    processes = [subprocess.Popen(cmd, shell=True) for cmd in load_commands]
-    for p in processes:
-        p.wait()
-    # log ogr statements for debugging
-    # for cmd in load_commands:
-    #    util.log(cmd)
-    #    subprocess.call(cmd, shell=True)
+            if source["input_table"] not in db.tables or force_download:
+                db.ogr2pg(
+                    file,
+                    in_layer=source["layer_in_file"],
+                    out_layer=source["input_table"],
+                    sql=source["query"]
+                )
 
     # create tiles layer if 20k tiles source is present
     if "tiles" not in db.tables and "a00_tiles_20k" in db.tables:
@@ -376,7 +360,6 @@ def dump(overlaps, aggregate):
 def run_all(config):
     """ Run complete designated lands job
     """
-    create_db(config)
     load(config)
     process(config)
     dump(config)
