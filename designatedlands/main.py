@@ -109,8 +109,10 @@ def load(alias, force_download):
 
     # download and load everything that we can automate
     for source in [s for s in sources if s["manual_download"] != "T"]:
-        if source["input_table"] not in db.tables or force_download:
-
+        # drop table if exists
+        if force_download:
+            db[source["input_table"]].drop()
+        if source["input_table"] not in db.tables:
             # run BCGW downloads directly (bcdata has its own parallelization)
             if urlparse(source["url"]).hostname == "catalogue.data.gov.bc.ca":
 
