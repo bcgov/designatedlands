@@ -52,6 +52,55 @@ def read_csv(path):
     return sorted(source_list, key=lambda k: k["hierarchy"])
 
 
+def tidy_designations(db, sources, designation_key, out_table):
+    """Add and populate 'category' column, tidy the national park designations
+    """
+    # add category (rollup) column by creating lookup table from source.csv
+    lookup_data = [
+        dict(alias=s[designation_key], category=s["category"])
+        for s in sources
+        if s["category"]
+    ]
+    # create lookup table
+    db["category_lookup"].drop()
+    db.execute(
+        """CREATE TABLE category_lookup
+                  (id SERIAL PRIMARY KEY, alias TEXT, category TEXT)"""
+    )
+    db["category_lookup"].insert(lookup_data)
+    # add category column
+    if "category" not in db[out_table].columns:
+        db.execute(
+            """ALTER TABLE {t}
+                      ADD COLUMN category TEXT
+                   """.format(
+                t=out_table
+            )
+        )
+    # populate category column from lookup
+    db.execute(
+        """UPDATE {t} AS o
+                  SET category = lut.category
+                  FROM category_lookup AS lut
+                  WHERE o.designation = lut.alias
+               """.format(
+            t=out_table
+        )
+    )
+    # Remove prefrixes and national park names from the designations tags
+    sql = """UPDATE {t}
+             SET designation = '01_park_national'
+             WHERE designation LIKE '%%01_park_national%%';
+
+             UPDATE {t}
+             SET designation = substring(designation from 2)
+             WHERE designation ~ '^[a-c][0-9]'
+          """.format(
+        t=out_table
+    )
+    db.execute(sql)
+
+
 def make_sure_path_exists(path):
     """
     Make directories in path if they do not exist.

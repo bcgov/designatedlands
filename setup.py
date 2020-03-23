@@ -40,6 +40,6 @@ setup(
     extras_require={"test": ["pytest", "coverage"]},
     entry_points="""
       [console_scripts]
-      designatedlands=designatedlands.main:cli
+      designatedlands=designatedlands.cli:cli
       """,
 )

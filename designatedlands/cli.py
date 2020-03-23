@@ -13,7 +13,6 @@
 # limitations under the License.
 import os
 import subprocess
-import tempfile
 from urllib.parse import urlparse
 import multiprocessing
 from functools import partial
@@ -24,7 +23,7 @@ import fiona
 import pgdata
 
 from designatedlands import download
-from designatedlands import geoutil
+from designatedlands import overlays
 from designatedlands import util
 from designatedlands.config import config
 
@@ -32,55 +31,6 @@ HELP = {
     "cfg": "Path to designatedlands config file",
     "alias": "The 'alias' key for the source of interest",
 }
-
-
-def tidy_designations(db, sources, designation_key, out_table):
-    """Add and populate 'category' column, tidy the national park designations
-    """
-    # add category (rollup) column by creating lookup table from source.csv
-    lookup_data = [
-        dict(alias=s[designation_key], category=s["category"])
-        for s in sources
-        if s["category"]
-    ]
-    # create lookup table
-    db["category_lookup"].drop()
-    db.execute(
-        """CREATE TABLE category_lookup
-                  (id SERIAL PRIMARY KEY, alias TEXT, category TEXT)"""
-    )
-    db["category_lookup"].insert(lookup_data)
-    # add category column
-    if "category" not in db[out_table].columns:
-        db.execute(
-            """ALTER TABLE {t}
-                      ADD COLUMN category TEXT
-                   """.format(
-                t=out_table
-            )
-        )
-    # populate category column from lookup
-    db.execute(
-        """UPDATE {t} AS o
-                  SET category = lut.category
-                  FROM category_lookup AS lut
-                  WHERE o.designation = lut.alias
-               """.format(
-            t=out_table
-        )
-    )
-    # Remove prefrixes and national park names from the designations tags
-    sql = """UPDATE {t}
-             SET designation = '01_park_national'
-             WHERE designation LIKE '%%01_park_national%%';
-
-             UPDATE {t}
-             SET designation = substring(designation from 2)
-             WHERE designation ~ '^[a-c][0-9]'
-          """.format(
-        t=out_table
-    )
-    db.execute(sql)
 
 
 @click.group()
@@ -150,19 +100,26 @@ def load(alias, force_download):
                     out_layer=source["input_table"],
                     sql=source["query"]
                 )
+        else:
+            click.echo(source["input_table"] + " already loaded.")
 
     # find and load manually downloaded sources
     for source in [s for s in sources if s["manual_download"] == "T"]:
         file = os.path.join(config["dl_path"], source["file_in_url"])
         if not os.path.exists(file):
             raise Exception(file + " does not exist, download it manually")
-            if source["input_table"] not in db.tables or force_download:
-                db.ogr2pg(
-                    file,
-                    in_layer=source["layer_in_file"],
-                    out_layer=source["input_table"],
-                    sql=source["query"]
-                )
+        # drop table if exists, we can't force manual downloads
+        if force_download:
+            db[source["input_table"]].drop()
+        if source["input_table"] not in db.tables:
+            db.ogr2pg(
+                file,
+                in_layer=source["layer_in_file"],
+                out_layer=source["input_table"],
+                sql=source["query"]
+            )
+        else:
+            click.echo(source["input_table"] + " already loaded.")
 
     # create tiles layer if 20k tiles source is present
     if "tiles" not in db.tables and "a00_tiles_20k" in db.tables:
@@ -184,11 +141,11 @@ def process(resume, force_preprocess, tiles):
     """
     db = pgdata.connect(config["db_url"], schema="public")
     # run required preprocessing, tile, attempt to clean inputs
-    geoutil.preprocess(db, config["source_csv"], force=force_preprocess)
-    geoutil.tile_sources(db, config["source_csv"], force=force_preprocess)
-    geoutil.clean_and_agg_sources(db, config["source_csv"], force=force_preprocess)
+    overlays.preprocess(db, config["source_csv"], force=force_preprocess)
+    overlays.tile_sources(db, config["source_csv"], force=force_preprocess)
+    overlays.clean_and_agg_sources(db, config["source_csv"], force=force_preprocess)
     # parse the list of tiles
-    tilelist = geoutil.parse_tiles(db, tiles)
+    tilelist = overlays.parse_tiles(db, tiles)
     # create target tables if not resuming from a bailed process
     if not resume:
         # create output tables
@@ -243,7 +200,7 @@ def process(resume, force_preprocess, tiles):
         )
         # determine which specified tiles are present in source layer
         src_tiles = set(
-            geoutil.get_tiles(db, source["cleaned_table"], tile_table="tiles")
+            overlays.get_tiles(db, source["cleaned_table"], tile_table="tiles")
         )
         if tilelist:
             tiles = set(tilelist) & src_tiles
@@ -259,7 +216,7 @@ def process(resume, force_preprocess, tiles):
                     util.log(tile)
                     db.execute(sql, (tile + "%",) * 2)
             else:
-                func = partial(geoutil.parallel_tiled, db.url, sql, n_subs=2)
+                func = partial(overlays.parallel_tiled, db.url, sql, n_subs=2)
                 pool = multiprocessing.Pool(processes=config["n_processes"])
                 pool.map(func, tiles)
                 pool.close()
@@ -268,17 +225,17 @@ def process(resume, force_preprocess, tiles):
             util.log("No tiles to process")
     # create marine-terrestrial layer
     if "bc_boundary" not in db.tables:
-        geoutil.create_bc_boundary(db, config["n_processes"])
+        overlays.create_bc_boundary(db, config["n_processes"])
 
     # overlay output tables with marine-terrestrial definition
     for table in [config["out_table"], config["out_table"] + "_overlaps"]:
         util.log("Cutting %s with marine-terrestrial definition" % table)
-        geoutil.intersect(
+        overlays.intersect(
             db, table + "_prelim", "bc_boundary", table, config["n_processes"], tiles
         )
 
-    tidy_designations(db, sources, "cleaned_table", config["out_table"])
-    tidy_designations(db, sources, "tiled_table", config["out_table"] + "_overlaps")
+    util.tidy_designations(db, sources, "cleaned_table", config["out_table"])
+    util.tidy_designations(db, sources, "tiled_table", config["out_table"] + "_overlaps")
 
 
 @cli.command()
@@ -304,7 +261,7 @@ def overlay(in_file, in_layer, dump_file, new_layer_name):
     # uncomment and adjust for debugging a specific tile
     # tiles = [t for t in tiles if t[:4] == '092K']
     util.log("Intersecting %s with %s" % (config["out_table"], new_layer_name))
-    geoutil.intersect(
+    overlays.intersect(
         db, config["out_table"], new_layer_name, out_layer, config["n_processes"], tiles
     )
     # dump result to file
@@ -329,7 +286,7 @@ def dump(overlaps, aggregate):
     if aggregate:
         if overlaps:
             util.log("ignoring --overlaps flag")
-        geoutil.dump_aggregate(config, "designatedlands_agg")
+        overlays.dump_aggregate(config, "designatedlands_agg")
     else:
         if overlaps:
             config["out_table"] = config["out_table"] + "_overlaps"
