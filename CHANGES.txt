@@ -9,6 +9,7 @@ All issue numbers are relative to https://github.com/bcgov/designatedlands/issue
 - provide guide to setting up db on Docker (#64)
 - use latest bcdata (#65)
 - simplify inclusion of lostgis functions (#66)
+- replace CARTS datasets with CPCAD (#62)
 
 
 0.1.0 (2018-05-17)
