@@ -86,7 +86,7 @@ def load(alias, force_download):
 
             # run non-bcgw downloads
             else:
-                click.echo("Loading "+source["input_table"])
+                click.echo("Loading " + source["input_table"])
                 file, layer = download.download_non_bcgw(
                     source["url"],
                     config["dl_path"],
@@ -98,7 +98,7 @@ def load(alias, force_download):
                     file,
                     in_layer=layer,
                     out_layer=source["input_table"],
-                    sql=source["query"]
+                    sql=source["query"],
                 )
         else:
             click.echo(source["input_table"] + " already loaded.")
@@ -116,7 +116,7 @@ def load(alias, force_download):
                 file,
                 in_layer=source["layer_in_file"],
                 out_layer=source["input_table"],
-                sql=source["query"]
+                sql=source["query"],
             )
         else:
             click.echo(source["input_table"] + " already loaded.")
@@ -235,7 +235,9 @@ def process(resume, force_preprocess, tiles):
         )
 
     util.tidy_designations(db, sources, "cleaned_table", config["out_table"])
-    util.tidy_designations(db, sources, "tiled_table", config["out_table"] + "_overlaps")
+    util.tidy_designations(
+        db, sources, "tiled_table", config["out_table"] + "_overlaps"
+    )
 
 
 @cli.command()
