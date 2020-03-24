@@ -16,16 +16,17 @@ import subprocess
 from urllib.parse import urlparse
 import multiprocessing
 from functools import partial
+import logging
 
 import click
 import fiona
+from cligj import verbose_opt, quiet_opt
 
 import pgdata
 
 from designatedlands import download
 from designatedlands import overlays
 from designatedlands import util
-from designatedlands.config import config
 
 HELP = {
     "cfg": "Path to designatedlands config file",
@@ -39,13 +40,20 @@ def cli():
 
 
 @cli.command()
+@click.argument("config_file", type=click.Path(exists=True), required=False)
 @click.option("--alias", "-a", help=HELP["alias"])
 @click.option(
     "--force_download", is_flag=True, default=False, help="Force fresh download"
 )
-def load(alias, force_download):
+@verbose_opt
+@quiet_opt
+def load(alias, force_download, config_file, verbose, quiet):
     """Download data, load to postgres
     """
+    config = util.read_config(config_file)
+    util.log_config(verbose, quiet)
+    logger = logging.getLogger(__name__)
+
     db = pgdata.connect(config["db_url"], schema="public")
     sources = util.read_csv(config["source_csv"])
 
@@ -81,12 +89,12 @@ def load(alias, force_download):
                 ]
                 if source["query"]:
                     cmd = cmd + ["--query", source["query"]]
-                click.echo(" ".join(cmd))
+                logger.info(" ".join(cmd))
                 subprocess.run(cmd)
 
             # run non-bcgw downloads
             else:
-                click.echo("Loading " + source["input_table"])
+                logger.info("Loading " + source["input_table"])
                 file, layer = download.download_non_bcgw(
                     source["url"],
                     config["dl_path"],
@@ -101,7 +109,7 @@ def load(alias, force_download):
                     sql=source["query"],
                 )
         else:
-            click.echo(source["input_table"] + " already loaded.")
+            logger.info(source["input_table"] + " already loaded.")
 
     # find and load manually downloaded sources
     for source in [s for s in sources if s["manual_download"] == "T"]:
@@ -119,7 +127,7 @@ def load(alias, force_download):
                 sql=source["query"],
             )
         else:
-            click.echo(source["input_table"] + " already loaded.")
+            logger.info(source["input_table"] + " already loaded.")
 
     # create tiles layer if 20k tiles source is present
     if "tiles" not in db.tables and "a00_tiles_20k" in db.tables:
@@ -128,6 +136,7 @@ def load(alias, force_download):
 
 
 @cli.command()
+@click.argument("config_file", type=click.Path(exists=True), required=False)
 @click.option("--resume", "-r", help="hierarchy number at which to resume processing")
 @click.option(
     "--force_preprocess",
@@ -136,9 +145,15 @@ def load(alias, force_download):
     help="Force re-preprocessing of input data",
 )
 @click.option("--tiles", default=None, help="Comma separated list of tiles to process")
-def process(resume, force_preprocess, tiles):
+@verbose_opt
+@quiet_opt
+def process(config_file, resume, force_preprocess, tiles, verbose, quiet):
     """Create output designatedlands tables
     """
+    config = util.read_config(config_file)
+    util.log_config(verbose, quiet)
+    logger = logging.getLogger(__name__)
+
     db = pgdata.connect(config["db_url"], schema="public")
     # run required preprocessing, tile, attempt to clean inputs
     overlays.preprocess(db, config["source_csv"], force=force_preprocess)
@@ -164,7 +179,7 @@ def process(resume, force_preprocess, tiles):
     # (tiles argument does not apply, we could build a tile query string but
     # it seems unnecessary)
     for source in sources:
-        util.log(
+        logger.info(
             "Inserting %s into preliminary output overlap table" % source["tiled_table"]
         )
         sql = db.build_query(
@@ -207,7 +222,7 @@ def process(resume, force_preprocess, tiles):
         else:
             tiles = src_tiles
         if tiles:
-            util.log(
+            logger.info(
                 "Inserting %s into preliminary output table" % source["cleaned_table"]
             )
             # for testing, run only one process and report on tile
@@ -222,14 +237,14 @@ def process(resume, force_preprocess, tiles):
                 pool.close()
                 pool.join()
         else:
-            util.log("No tiles to process")
+            logger.info("No tiles to process")
     # create marine-terrestrial layer
     if "bc_boundary" not in db.tables:
         overlays.create_bc_boundary(db, config["n_processes"])
 
     # overlay output tables with marine-terrestrial definition
     for table in [config["out_table"], config["out_table"] + "_overlaps"]:
-        util.log("Cutting %s with marine-terrestrial definition" % table)
+        logger.info("Cutting %s with marine-terrestrial definition" % table)
         overlays.intersect(
             db, table + "_prelim", "bc_boundary", table, config["n_processes"], tiles
         )
@@ -242,14 +257,21 @@ def process(resume, force_preprocess, tiles):
 
 @cli.command()
 @click.argument("in_file", type=click.Path(exists=True))
+@click.argument("config_file", type=click.Path(exists=True), required=False)
 @click.option("--in_layer", "-l", help="Input layer name")
 @click.option(
     "--dump_file", is_flag=True, default=False, help="Dump to file (out_file in .cfg)"
 )
 @click.option("--new_layer_name", "-nln", help="Name of overlay output layer")
-def overlay(in_file, in_layer, dump_file, new_layer_name):
+@verbose_opt
+@quiet_opt
+def overlay(in_file, config_file, in_layer, dump_file, new_layer_name, verbose, quiet):
     """Intersect layer with designatedlands
     """
+    config = util.read_config(config_file)
+    util.log_config(verbose, quiet)
+    logger = logging.getLogger(__name__)
+
     # load in_file to postgres
     db = pgdata.connect(config["db_url"], schema="public")
     if not in_layer:
@@ -262,17 +284,18 @@ def overlay(in_file, in_layer, dump_file, new_layer_name):
     tiles = [t for t in db["tiles"].distinct("map_tile")]
     # uncomment and adjust for debugging a specific tile
     # tiles = [t for t in tiles if t[:4] == '092K']
-    util.log("Intersecting %s with %s" % (config["out_table"], new_layer_name))
+    logger.info("Intersecting %s with %s" % (config["out_table"], new_layer_name))
     overlays.intersect(
         db, config["out_table"], new_layer_name, out_layer, config["n_processes"], tiles
     )
     # dump result to file
     if dump_file:
-        util.log("Dumping intersect to file %s " % config["out_file"])
+        logger.info("Dumping intersect to file %s " % config["out_file"])
         dump(out_layer, config["out_file"], config["out_format"])
 
 
 @cli.command()
+@click.argument("config_file", type=click.Path(exists=True), required=False)
 @click.option(
     "--overlaps",
     is_flag=True,
@@ -282,9 +305,14 @@ def overlay(in_file, in_layer, dump_file, new_layer_name):
 @click.option(
     "--aggregate", is_flag=True, default=False, help="Aggregate over tile boundaries"
 )
-def dump(overlaps, aggregate):
+@verbose_opt
+@quiet_opt
+def dump(config_file, overlaps, aggregate, verbose, quiet):
     """Dump output designatedlands table to file
     """
+    config = util.read_config(config_file)
+    util.log_config(verbose, quiet)
+    logger = logging.getLogger(__name__)
     if aggregate:
         if overlaps:
             util.log("ignoring --overlaps flag")
@@ -293,7 +321,7 @@ def dump(overlaps, aggregate):
         if overlaps:
             config["out_table"] = config["out_table"] + "_overlaps"
         db = pgdata.connect(config["db_url"], schema="public")
-        util.log("Dumping %s to %s" % (config["out_table"], config["out_file"]))
+        logger.info("Dumping %s to %s" % (config["out_table"], config["out_file"]))
         columns = [
             c
             for c in db[config["out_table"]].columns
@@ -306,7 +334,7 @@ def dump(overlaps, aggregate):
                 """.format(
             cols=",".join(columns), t=config["out_table"]
         )
-        util.log(ogr_sql)
+        logger.info(ogr_sql)
         db = pgdata.connect(config["db_url"])
         db.pg2ogr(
             ogr_sql,
@@ -315,15 +343,6 @@ def dump(overlaps, aggregate):
             config["out_table"],
             geom_type="MULTIPOLYGON",
         )
-
-
-@cli.command()
-def run_all(config):
-    """ Run complete designated lands job
-    """
-    load(config)
-    process(config)
-    dump(config)
 
 
 if __name__ == "__main__":

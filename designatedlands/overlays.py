@@ -24,7 +24,7 @@ import pgdata
 
 from designatedlands import util
 
-logging.basicConfig(level=logging.INFO)
+LOG = logging.getLogger(__name__)
 
 
 def get_tiles(db, table, tile_table="a00_tiles_250k"):
@@ -91,7 +91,7 @@ def clip(db, in_table, clip_table, out_table):
         in_table=in_table,
         clip_table=clip_table,
     )
-    util.log("Clipping %s by %s to create %s" % (in_table, clip_table, out_table))
+    LOG.info("Clipping %s by %s to create %s" % (in_table, clip_table, out_table))
     db.execute(sql)
 
 
@@ -108,7 +108,7 @@ def union(db, in_table, columns, out_table):
           """.format(
         temp=out_table, columns=columns, in_table=in_table
     )
-    util.log(
+    LOG.info(
         "Unioning geometries in %s by %s to create %s" % (in_table, columns, out_table)
     )
     db.execute(sql)
@@ -134,7 +134,7 @@ def tile_sources(db, source_csv, alias=None, force=False):
     tile_sources = [s for s in sources if s["exclude"] != "T" and s["hierarchy"] != 0]
     for source in tile_sources:
         if source["tiled_table"] not in db.tables or force:
-            util.log("Tiling and validating: %s" % source["alias"])
+            LOG.info("Tiling and validating: %s" % source["alias"])
             db[source["tiled_table"]].drop()
             lookup = {
                 "out_table": source["tiled_table"],
@@ -163,7 +163,7 @@ def clean_and_agg_sources(db, source_csv, alias=None, force=False):
     clean_sources = [s for s in sources if s["exclude"] != "T" and s["hierarchy"] != 0]
     for source in clean_sources:
         if source["cleaned_table"] not in db.tables or force:
-            util.log("Cleaning and aggregating: %s" % source["alias"])
+            LOG.info("Cleaning and aggregating: %s" % source["alias"])
             db[source["cleaned_table"]].drop()
             lookup = {
                 "out_table": source["cleaned_table"],
@@ -187,7 +187,7 @@ def preprocess(db, source_csv, alias=None, force=False):
     preprocess_sources = [s for s in sources if s["preprocess_operation"] != ""]
     for source in preprocess_sources:
         if source["input_table"] + "_preprc" not in db.tables or force:
-            util.log("Preprocessing: %s" % source["alias"])
+            LOG.info("Preprocessing: %s" % source["alias"])
             if source["preprocess_operation"] not in ["clip", "union"]:
                 raise ValueError(
                     "Preprocess operation %s not supprted"
@@ -246,7 +246,7 @@ def create_bc_boundary(db, n_processes):
                    GROUP BY designation"""
     )
     for source in ["a00_bc_boundary_land", "a00_bc_boundary_marine"]:
-        util.log("Prepping and inserting into bc_boundary: %s" % source)
+        LOG.info("Prepping and inserting into bc_boundary: %s" % source)
         # subdivide before attempting to tile
         db["temp_" + source].drop()
         db.execute(
@@ -301,7 +301,7 @@ def intersect(db, in_table, intersect_table, out_table, n_processes, tiles=None)
     # test for non-unique columns in input (other than map_tile and geom)
     non_unique_columns = in_names.intersection(intersect_names)
     if non_unique_columns:
-        util.log("Column(s) found in both sources: %s" % ",".join(non_unique_columns))
+        LOG.info("Column(s) found in both sources: %s" % ",".join(non_unique_columns))
         raise Exception("Input column names must be unique")
 
     # create output table

@@ -52,11 +52,14 @@ A complete run of the tool was completed on Sept 21, 2017, and the results are r
 
 
 ## Configuration
-Modify general configuration of designatedlands by editing the default `designatedlands.cfg` or by creating your own config file with the same keys and passing it as an argument to the command line tool.
+
+Modify the general configuration of designatedlands by supplying a config file to the command line tool.
+Note that the config file does not have to contain all parameters, you only need to include those where you do not wish to use the default values.
+
+See example [`designateldands.cfg`](designatedlands.cfg) listing all configuration parameters.
 
 | KEY       | VALUE                                            |
 |-----------|--------------------------------------------------|
-| `email`| Email address to use for downloading data from DataBC catalogue. Defaults to environment `BCDATA_EMAIL` if this is not provided
 | `source_data`| path to folder that holds downloaded datasets |
 | `source_csv`| path to file that holds all data source definitions |
 | `out_table`| name of output table to create in postgres |
@@ -98,13 +101,15 @@ Commands:
 For help regarding an individual command:
 ```
 $ designatedlands load --help
-Usage: designatedlands load [OPTIONS]
+Usage: designatedlands load [OPTIONS] [CONFIG_FILE]
 
   Download data, load to postgres
 
 Options:
   -a, --alias TEXT  The 'alias' key for the source of interest
   --force_download  Force fresh download
+  -v, --verbose     Increase verbosity.
+  -q, --quiet       Decrease verbosity.
   --help            Show this message and exit.
 ```
 
@@ -114,7 +119,7 @@ In addition to creating the output designated lands layer, this tool also provid
 
 ```
 $ designatedlands overlay --help
-Usage: designatedlands overlay [OPTIONS] IN_FILE
+Usage: designatedlands overlay [OPTIONS] IN_FILE [CONFIG_FILE]
 
   Intersect layer with designatedlands
 
@@ -122,6 +127,8 @@ Options:
   -l, --in_layer TEXT          Input layer name
   --dump_file                  Dump to file (out_file in .cfg)
   -nln, --new_layer_name TEXT  Name of overlay output layer
+  -v, --verbose                Increase verbosity.
+  -q, --quiet                  Decrease verbosity.
   --help                       Show this message and exit.
 ```
 
