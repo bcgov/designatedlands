@@ -20,13 +20,14 @@ import tempfile
 import urllib.request
 from urllib.parse import urlparse
 import zipfile
+from pathlib import Path
+import logging
 
 import fiona
 
 
-from designatedlands import util
-
 CHUNK_SIZE = 1024
+LOG = logging.getLogger(__name__)
 
 
 def download_non_bcgw(url, path, filename, layer=None, force_download=False):
@@ -41,7 +42,7 @@ def download_non_bcgw(url, path, filename, layer=None, force_download=False):
     if force_download and os.path.exists(out_folder):
         shutil.rmtree(out_folder)
     if not os.path.exists(out_folder):
-        util.log("Downloading " + url)
+        LOG.info("Downloading " + url)
         parsed_url = urlparse(url)
         urlfile = parsed_url.path.split("/")[-1]
         _, extension = os.path.split(urlfile)
@@ -66,10 +67,10 @@ def download_non_bcgw(url, path, filename, layer=None, force_download=False):
                 fp.write(buffer)
         fp.close()
         # extract zipfile
-        unzip_dir = util.make_sure_path_exists(out_folder)
-        util.log("Extracting %s to %s" % (fp.name, unzip_dir))
+        Path(out_folder).mkdir(parents=True, exist_ok=True)
+        LOG.info("Extracting %s to %s" % (fp.name, out_folder))
         zipped_file = get_compressed_file_wrapper(fp.name)
-        zipped_file.extractall(unzip_dir)
+        zipped_file.extractall(out_folder)
         zipped_file.close()
     # get layer name
     if not layer:

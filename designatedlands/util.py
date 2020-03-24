@@ -142,16 +142,3 @@ def tidy_designations(db, sources, designation_key, out_table):
         t=out_table
     )
     db.execute(sql)
-
-
-def make_sure_path_exists(path):
-    """
-    Make directories in path if they do not exist.
-    Modified from http://stackoverflow.com/a/5032238/1377021
-    """
-    try:
-        os.makedirs(path)
-        return path
-
-    except:
-        pass
