@@ -21,8 +21,8 @@
 
 INSERT INTO $out_table (
   designation,
-  designation_id,
-  designation_name,
+  source_id,
+  source_name,
   forest_restriction,
   og_restriction,
   mine_restriction,
@@ -30,9 +30,9 @@ INSERT INTO $out_table (
 )
 
 SELECT
-  '$out_table'::TEXT AS designation,
-  a.$designation_id_col AS designation_id,
-  a.$designation_name_col AS designation_name,
+  '$desig_type'::TEXT AS designation,
+  $source_id_col AS designation_id,
+  $source_name_col AS designation_name,
   '$forest_restriction'::TEXT as forest_restriction,
   '$og_restriction'::TEXT as og_restriction,
   '$mine_restriction'::TEXT as mine_restriction,
@@ -46,6 +46,6 @@ SELECT
          ST_Multi(geom)
       )
       )).geom) as geom
-FROM $src_table a
+FROM $src_table
 GROUP BY designation, designation_id, designation_name
 ;

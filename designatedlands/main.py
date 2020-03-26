@@ -110,11 +110,11 @@ class DesignatedLands(object):
                 "designatedlands.src_"
                 + str(source["id"]).zfill(2)
                 + "_"
-                + source["alias"]
+                + source["designation"]
             )
             source["preprc"] = source["src"] + "_preprc"
             source["dl"] = (
-                "designatedlands.dl_" + source["hierarchy"] + "_" + source["alias"]
+                "designatedlands.dl_" + source["hierarchy"] + "_" + source["designation"]
             )
 
         # read list of supporting layers and remove excluded rows
@@ -122,7 +122,7 @@ class DesignatedLands(object):
             s for s in csv.DictReader(open(self.config["sources_supporting"]))
         ]
 
-        # add id column, prefix aliases with '00' for sorting
+        # add id column
         for i, source in enumerate(supporting_list, start=(len(self.sources) + 1)):
             source["id"] = i
             source["hierarchy"] = "00"
@@ -318,8 +318,8 @@ class DesignatedLands(object):
         CREATE TABLE {out_table} (
           designatedlands_id serial PRIMARY KEY,
           designation text,
-          designation_id text,
-          designation_name text,
+          source_id text,
+          source_name text,
           forest_restriction text,
           og_restriction text,
           mine_restriction text,
@@ -344,8 +344,9 @@ class DesignatedLands(object):
             lookup = {
                 "out_table": out_table,
                 "src_table": input_table,
-                "designation_id_col": source["designation_id_col"],
-                "designation_name_col": source["designation_name_col"],
+                "desig_type": source["designation"],
+                "source_id_col": source["source_id_col"],
+                "source_name_col": source["source_name_col"],
                 "forest_restriction": source["forest_restriction"],
                 "og_restriction": source["og_restriction"],
                 "mine_restriction": source["mine_restriction"]

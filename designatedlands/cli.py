@@ -115,6 +115,38 @@ def dump(table, config_file, verbose, quiet):
     )
 
 
+@cli.command()
+@click.argument("in_file", type=click.Path(exists=True))
+@click.argument("config_file", type=click.Path(exists=True), required=False)
+@click.option("--in_layer", "-l", help="Input layer name")
+@click.option(
+    "--dump_file", is_flag=True, default=False, help="Dump to file (out_file in .cfg)"
+)
+@click.option("--new_layer_name", "-nln", help="Name of overlay output layer")
+@verbose_opt
+@quiet_opt
+def overlay(in_file, config_file, in_layer, dump_file, new_layer_name, verbose, quiet):
+    """Intersect layer with designatedlands
+    """
+    get_logger(verbose, quiet)
+    DL = DesignatedLands(config_file)
+
+    if not in_layer:
+        in_layer = fiona.listlayers(in_file)[0]
+    if not new_layer_name:
+        new_layer_name = in_layer[:63]  # Maximum table name length is 63
+    out_layer = new_layer_name[:50] + "_overlay"
+    DL.db.ogr2pg(in_file, in_layer=in_layer, out_layer=new_layer_name)
+    # pull distinct tiles iterable into a list
+    tiles = [t for t in DL.db["tiles"].distinct("map_tile")]
+    DL.intersect(
+        "designatedlands", new_layer_name, out_layer, DL.config["n_processes"], tiles
+    )
+    # dump result to file
+    if dump_file:
+        dump(out_layer, DL.config["out_file"], DL.config["out_format"])
+
+
 """
 #@click.option("--resume", "-r", help="hierarchy number at which to resume processing")
 
@@ -216,44 +248,6 @@ def dump(table, config_file, verbose, quiet):
     )
 
 """
-
-
-@cli.command()
-@click.argument("in_file", type=click.Path(exists=True))
-@click.argument("config_file", type=click.Path(exists=True), required=False)
-@click.option("--in_layer", "-l", help="Input layer name")
-@click.option(
-    "--dump_file", is_flag=True, default=False, help="Dump to file (out_file in .cfg)"
-)
-@click.option("--new_layer_name", "-nln", help="Name of overlay output layer")
-@verbose_opt
-@quiet_opt
-def overlay(in_file, config_file, in_layer, dump_file, new_layer_name, verbose, quiet):
-    """Intersect layer with designatedlands
-    """
-    config = util.read_config(config_file)
-    logger = get_logger(verbose, quiet)
-
-    # load in_file to postgres
-    db = pgdata.connect(config["db_url"], schema="public")
-    if not in_layer:
-        in_layer = fiona.listlayers(in_file)[0]
-    if not new_layer_name:
-        new_layer_name = in_layer[:63]  # Maximum table name length is 63
-    out_layer = new_layer_name[:50] + "_overlay"
-    db.ogr2pg(in_file, in_layer=in_layer, out_layer=new_layer_name)
-    # pull distinct tiles iterable into a list
-    tiles = [t for t in db["tiles"].distinct("map_tile")]
-    # uncomment and adjust for debugging a specific tile
-    # tiles = [t for t in tiles if t[:4] == '092K']
-    logger.info("Intersecting %s with %s" % (config["out_table"], new_layer_name))
-    main.intersect(
-        db, config["out_table"], new_layer_name, out_layer, config["n_processes"], tiles
-    )
-    # dump result to file
-    if dump_file:
-        logger.info("Dumping intersect to file %s " % config["out_file"])
-        dump(out_layer, config["out_file"], config["out_format"])
 
 
 if __name__ == "__main__":
