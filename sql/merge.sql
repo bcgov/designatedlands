@@ -13,20 +13,30 @@
 
 -- ----------------------------------------------------------------------------------------------------
 
+--   - merge/repair data in src_table
+--   - where available, retain source id and source name
 
-INSERT INTO $out_table ($in_columns, $intersect_columns, map_tile, geom)
-
-
+-- insert cleaned data
+INSERT INTO $out_table (
+  designation,
+  designation_id,
+  designation_name,
+  geom
+)
 SELECT
-  $in_columns,
-  $intersect_columns,
-  a.map_tile,
-  CASE
-    WHEN ST_CoveredBy(ST_CollectionExtract(a.geom, 3), ST_Buffer(ST_CollectionExtract(b.geom, 3), .01)) THEN ST_MakeValid(a.geom)
-    ELSE ST_MakeValid(ST_Multi(ST_CollectionExtract(ST_Intersection(
-                     ST_MakeValid(a.geom), ST_MakeValid(b.geom)
-                     ), 3)))
-   END as geom
-FROM $in_table a
-INNER JOIN $intersect_table b ON ST_Intersects(ST_CollectionExtract(a.geom, 3), ST_CollectionExtract(b.geom, 3))
-WHERE a.map_tile LIKE %s AND b.map_tile LIKE %s
+  '$out_table'::TEXT AS designation,
+  a.$designation_id_col AS designation_id,
+  a.$designation_name_col AS designation_name,
+  -- make sure the output is valid
+  ST_Safe_Repair(
+  -- dump
+    (ST_Dump(
+  -- merge records with the same name and id
+       ST_Union(
+  -- force to multipart just to make sure everthing is the same
+         ST_Multi(geom)
+      )
+      )).geom) as geom
+FROM $src_table a
+GROUP BY designation, designation_id, designation_name
+;

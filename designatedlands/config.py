@@ -1,6 +1,7 @@
 defaultconfig = {
     "dl_path": "source_data",
-    "source_csv": "sources.csv",
+    "sources_designations": "sources_designations.csv",
+    "sources_supporting": "sources_supporting.csv",
     "out_table": "designatedlands",
     "out_file": "designatedlands.gpkg",
     "out_format": "GPKG",

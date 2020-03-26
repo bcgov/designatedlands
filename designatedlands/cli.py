@@ -11,12 +11,8 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-import os
-import subprocess
-from urllib.parse import urlparse
-import multiprocessing
-from functools import partial
 import logging
+import sys
 
 import click
 import fiona
@@ -24,14 +20,20 @@ from cligj import verbose_opt, quiet_opt
 
 import pgdata
 
-from designatedlands import download
-from designatedlands import overlays
 from designatedlands import util
+from designatedlands import DesignatedLands
+from designatedlands import main
 
-HELP = {
-    "cfg": "Path to designatedlands config file",
-    "alias": "The 'alias' key for the source of interest",
-}
+
+def get_logger(verbose, quiet):
+    verbosity = verbose - quiet
+    log_level = max(10, 20 - 10 * verbosity)  # default to INFO log level
+    logging.basicConfig(
+        stream=sys.stderr,
+        level=log_level,
+        format="%(asctime)s %(name)-12s %(levelname)-8s %(message)s",
+    )
+    return logging.getLogger(__name__)
 
 
 @click.group()
@@ -41,126 +43,87 @@ def cli():
 
 @cli.command()
 @click.argument("config_file", type=click.Path(exists=True), required=False)
-@click.option("--alias", "-a", help=HELP["alias"])
+@click.option("--alias", "-a", help="The 'alias' key for the source of interest")
 @click.option(
-    "--force_download", is_flag=True, default=False, help="Force fresh download"
+    "--overwrite",
+    is_flag=True,
+    default=False,
+    help="Overwrite any existing output, force fresh download",
 )
 @verbose_opt
 @quiet_opt
-def load(alias, force_download, config_file, verbose, quiet):
+def download(config_file, alias, overwrite, verbose, quiet):
     """Download data, load to postgres
     """
-    config = util.read_config(config_file)
-    util.log_config(verbose, quiet)
-    logger = logging.getLogger(__name__)
-
-    db = pgdata.connect(config["db_url"], schema="public")
-    sources = util.read_csv(config["source_csv"])
-
-    # filter sources based on optional provided alias and ignoring excluded
-    if alias:
-        sources = [s for s in sources if s["alias"] == alias]
-        if not sources:
-            raise ValueError("Alias %s does not exist" % alias)
-
-    sources = [s for s in sources if s["exclude"] != "T"]
-
-    # download and load everything that we can automate
-    for source in [s for s in sources if s["manual_download"] != "T"]:
-        # drop table if exists
-        if force_download:
-            db[source["input_table"]].drop()
-        if source["input_table"] not in db.tables:
-            # run BCGW downloads directly (bcdata has its own parallelization)
-            if urlparse(source["url"]).hostname == "catalogue.data.gov.bc.ca":
-
-                # derive databc package name from the url
-                package = os.path.split(urlparse(source["url"]).path)[1]
-                cmd = [
-                    "bcdata",
-                    "bc2pg",
-                    package,
-                    "--db_url",
-                    config["db_url"],
-                    "--schema",
-                    "public",
-                    "--table",
-                    source["input_table"],
-                ]
-                if source["query"]:
-                    cmd = cmd + ["--query", source["query"]]
-                logger.info(" ".join(cmd))
-                subprocess.run(cmd)
-
-            # run non-bcgw downloads
-            else:
-                logger.info("Loading " + source["input_table"])
-                file, layer = download.download_non_bcgw(
-                    source["url"],
-                    config["dl_path"],
-                    source["file_in_url"],
-                    source["layer_in_file"],
-                    force_download=force_download,
-                )
-                db.ogr2pg(
-                    file,
-                    in_layer=layer,
-                    out_layer=source["input_table"],
-                    sql=source["query"],
-                )
-        else:
-            logger.info(source["input_table"] + " already loaded.")
-
-    # find and load manually downloaded sources
-    for source in [s for s in sources if s["manual_download"] == "T"]:
-        file = os.path.join(config["dl_path"], source["file_in_url"])
-        if not os.path.exists(file):
-            raise Exception(file + " does not exist, download it manually")
-        # drop table if exists, we can't force manual downloads
-        if force_download:
-            db[source["input_table"]].drop()
-        if source["input_table"] not in db.tables:
-            db.ogr2pg(
-                file,
-                in_layer=source["layer_in_file"],
-                out_layer=source["input_table"],
-                sql=source["query"],
-            )
-        else:
-            logger.info(source["input_table"] + " already loaded.")
-
-    # create tiles layer if 20k tiles source is present
-    if "tiles" not in db.tables and "a00_tiles_20k" in db.tables:
-        util.log("Creating tiles layer")
-        db.execute(db.queries["create_tiles"])
+    get_logger(verbose, quiet)
+    DL = DesignatedLands(config_file)
+    DL.download(alias=alias, overwrite=overwrite)
 
 
 @cli.command()
 @click.argument("config_file", type=click.Path(exists=True), required=False)
-@click.option("--resume", "-r", help="hierarchy number at which to resume processing")
+@click.option("--alias", "-a", help="The 'alias' key for the source of interest")
 @click.option(
-    "--force_preprocess",
+    "--overwrite",
     is_flag=True,
     default=False,
-    help="Force re-preprocessing of input data",
+    help="Overwrite any existing output, force fresh download",
 )
-@click.option("--tiles", default=None, help="Comma separated list of tiles to process")
 @verbose_opt
 @quiet_opt
-def process(config_file, resume, force_preprocess, tiles, verbose, quiet):
-    """Create output designatedlands tables
-    """
-    config = util.read_config(config_file)
-    util.log_config(verbose, quiet)
-    logger = logging.getLogger(__name__)
+def preprocess(config_file, alias, overwrite, verbose, quiet):
+    get_logger(verbose, quiet)
+    DL = DesignatedLands(config_file)
+    DL.preprocess(alias=alias)
 
-    db = pgdata.connect(config["db_url"], schema="public")
-    # run required preprocessing, tile, attempt to clean inputs
-    overlays.preprocess(db, config["source_csv"], force=force_preprocess)
-    overlays.tile_sources(db, config["source_csv"], force=force_preprocess)
-    overlays.clean_and_agg_sources(db, config["source_csv"], force=force_preprocess)
+
+@cli.command()
+@click.argument("config_file", type=click.Path(exists=True), required=False)
+@verbose_opt
+@quiet_opt
+def tidy(config_file, verbose, quiet):
+    get_logger(verbose, quiet)
+    DL = DesignatedLands(config_file)
+    DL.tidy()
+
+
+@cli.command()
+@click.argument("config_file", type=click.Path(exists=True), required=False)
+@verbose_opt
+@quiet_opt
+def cleanup(config_file, verbose, quiet):
+    get_logger(verbose, quiet)
+    DL = DesignatedLands(config_file)
+    DL.cleanup()
+
+
+@cli.command()
+@click.argument("config_file", type=click.Path(exists=True), required=False)
+@click.option(
+    "--overwrite", is_flag=True, default=False, help="Overwrite any existing outputs",
+)
+@verbose_opt
+@quiet_opt
+def merge(config_file, overwrite, verbose, quiet):
+    """Clean inputs and merge into output 'overlaps' table
+    """
+    logger = get_logger(verbose, quiet)
+    DL = DesignatedLands(config_file, alias)
+
+    # if alias provided, only process that layer
+    if alias:
+        DL.sources = [s for s in DL.sources if s["alias"] == alias]
+    if not sources:
+        raise ValueError("Alias %s does not exist" % alias)
+
+
+"""
+#@click.option("--resume", "-r", help="hierarchy number at which to resume processing")
+
+    main.clean_and_agg_sources(db, config["source_csv"], force=force_preprocess)
+
     # parse the list of tiles
-    tilelist = overlays.parse_tiles(db, tiles)
+    tilelist = main.parse_tiles(db, tiles)
     # create target tables if not resuming from a bailed process
     if not resume:
         # create output tables
@@ -215,7 +178,7 @@ def process(config_file, resume, force_preprocess, tiles, verbose, quiet):
         )
         # determine which specified tiles are present in source layer
         src_tiles = set(
-            overlays.get_tiles(db, source["cleaned_table"], tile_table="tiles")
+            main.get_tiles(db, source["cleaned_table"], tile_table="tiles")
         )
         if tilelist:
             tiles = set(tilelist) & src_tiles
@@ -231,7 +194,7 @@ def process(config_file, resume, force_preprocess, tiles, verbose, quiet):
                     util.log(tile)
                     db.execute(sql, (tile + "%",) * 2)
             else:
-                func = partial(overlays.parallel_tiled, db.url, sql, n_subs=2)
+                func = partial(main.parallel_tiled, db.url, sql, n_subs=2)
                 pool = multiprocessing.Pool(processes=config["n_processes"])
                 pool.map(func, tiles)
                 pool.close()
@@ -240,12 +203,12 @@ def process(config_file, resume, force_preprocess, tiles, verbose, quiet):
             logger.info("No tiles to process")
     # create marine-terrestrial layer
     if "bc_boundary" not in db.tables:
-        overlays.create_bc_boundary(db, config["n_processes"])
+        main.create_bc_boundary(db, config["n_processes"])
 
     # overlay output tables with marine-terrestrial definition
     for table in [config["out_table"], config["out_table"] + "_overlaps"]:
         logger.info("Cutting %s with marine-terrestrial definition" % table)
-        overlays.intersect(
+        main.intersect(
             db, table + "_prelim", "bc_boundary", table, config["n_processes"], tiles
         )
 
@@ -253,6 +216,8 @@ def process(config_file, resume, force_preprocess, tiles, verbose, quiet):
     util.tidy_designations(
         db, sources, "tiled_table", config["out_table"] + "_overlaps"
     )
+
+"""
 
 
 @cli.command()
@@ -269,8 +234,7 @@ def overlay(in_file, config_file, in_layer, dump_file, new_layer_name, verbose, 
     """Intersect layer with designatedlands
     """
     config = util.read_config(config_file)
-    util.log_config(verbose, quiet)
-    logger = logging.getLogger(__name__)
+    logger = get_logger(verbose, quiet)
 
     # load in_file to postgres
     db = pgdata.connect(config["db_url"], schema="public")
@@ -285,7 +249,7 @@ def overlay(in_file, config_file, in_layer, dump_file, new_layer_name, verbose, 
     # uncomment and adjust for debugging a specific tile
     # tiles = [t for t in tiles if t[:4] == '092K']
     logger.info("Intersecting %s with %s" % (config["out_table"], new_layer_name))
-    overlays.intersect(
+    main.intersect(
         db, config["out_table"], new_layer_name, out_layer, config["n_processes"], tiles
     )
     # dump result to file
@@ -316,7 +280,7 @@ def dump(config_file, overlaps, aggregate, verbose, quiet):
     if aggregate:
         if overlaps:
             util.log("ignoring --overlaps flag")
-        overlays.dump_aggregate(config, "designatedlands_agg")
+        main.dump_aggregate(config, "designatedlands_agg")
     else:
         if overlaps:
             config["out_table"] = config["out_table"] + "_overlaps"

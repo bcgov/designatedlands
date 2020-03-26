@@ -12,133 +12,137 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import configparser
-import csv
-import multiprocessing
 import os
+import hashlib
+import requests
+import shutil
+import tarfile
+import tempfile
+import urllib.request
+from urllib.parse import urlparse
+import zipfile
+from pathlib import Path
 import logging
-import sys
+import pgdata
 
-from designatedlands.config import defaultconfig
-
-
-class ConfigError(Exception):
-    """Configuration key error"""
+import fiona
 
 
-class ConfigValueError(Exception):
-    """Configuration value error"""
+CHUNK_SIZE = 1024
+LOG = logging.getLogger(__name__)
 
 
-def log_config(verbose, quiet):
-    verbosity = verbose - quiet
-    log_level = max(10, 20 - 10 * verbosity)  # default to INFO log level
-    logging.basicConfig(
-        stream=sys.stderr,
-        level=log_level,
-        format="%(asctime)s %(name)-12s %(levelname)-8s %(message)s",
-    )
-
-
-def read_config(config_file):
-    """Load and read provided configuration file
+def parallel_tiled(db_url, sql, tile, n_subs=1):
     """
-    if config_file:
-        if not os.path.exists(config_file):
-            raise ConfigValueError(f"File {config_file} does not exist")
-        config = configparser.ConfigParser()
-        config.read(config_file)
-        config_dict = dict(config["designatedlands"])
-        # make sure output table is lowercase
-        config_dict["out_table"] = config_dict["out_table"].lower()
-        # convert n_processes to integer
-        config_dict["n_processes"] = int(config_dict["n_processes"])
-        # set default n_processes to the number of cores available minus one
-        if config_dict["n_processes"] == -1:
-            config_dict["n_processes"] = multiprocessing.cpu_count() - 1
-        # don't try and use more cores than are available
-        elif config_dict["n_processes"] > multiprocessing.cpu_count():
-            config_dict["n_processes"] = multiprocessing.cpu_count()
+    Create a connection and execute query for specified tile
+    n_subs is the number of places in the sql query that should be
+    substituted by the tile name
+    """
+    db = pgdata.connect(db_url, schema="designatedlands", multiprocessing=True)
+    # As we are explicitly splitting up our job by tile and processing tiles
+    # concurrently in individual connections we don't want the database to try
+    # and manage parallel execution of these queries within these connections.
+    # Turn off this connection's parallel execution:
+    db.execute("SET max_parallel_workers_per_gather = 0")
+    db.execute(sql, (tile + "%",) * n_subs)
+
+
+def download_non_bcgw(url, path, filename, layer=None, overwrite=False):
+    """
+    Download and extract a zipfile to unique location
+    Modified from https://github.com/OpenBounds/Processing/blob/master/utils.py
+    """
+    # create a unique name for downloading and unzipping, this ensures a given
+    # url will only get downloaded once
+    out_folder = os.path.join(path, hashlib.sha224(url.encode("utf-8")).hexdigest())
+    out_file = os.path.join(out_folder, filename)
+    if overwrite and os.path.exists(out_folder):
+        shutil.rmtree(out_folder)
+    if not os.path.exists(out_folder):
+        LOG.info("Downloading " + url)
+        parsed_url = urlparse(url)
+        urlfile = parsed_url.path.split("/")[-1]
+        _, extension = os.path.split(urlfile)
+        fp = tempfile.NamedTemporaryFile("wb", suffix=extension, delete=False)
+        if parsed_url.scheme == "http" or parsed_url.scheme == "https":
+            res = requests.get(url, stream=True, verify=False)
+            if not res.ok:
+                raise IOError
+
+            for chunk in res.iter_content(CHUNK_SIZE):
+                fp.write(chunk)
+        elif parsed_url.scheme == "ftp":
+            download = urllib.request.urlopen(url)
+            file_size_dl = 0
+            block_sz = 8192
+            while True:
+                buffer = download.read(block_sz)
+                if not buffer:
+                    break
+
+                file_size_dl += len(buffer)
+                fp.write(buffer)
+        fp.close()
+        # extract zipfile
+        Path(out_folder).mkdir(parents=True, exist_ok=True)
+        LOG.info("Extracting %s to %s" % (fp.name, out_folder))
+        zipped_file = get_compressed_file_wrapper(fp.name)
+        zipped_file.extractall(out_folder)
+        zipped_file.close()
+    # get layer name
+    if not layer:
+        layer = fiona.listlayers(os.path.join(out_folder, filename))[0]
+    return (out_file, layer)
+
+
+class ZipCompatibleTarFile(tarfile.TarFile):
+    """
+    Wrapper around TarFile to make it more compatible with ZipFile
+    Modified from https://github.com/OpenBounds/Processing/blob/master/utils.py
+    """
+
+    def infolist(self):
+        members = self.getmembers()
+        for m in members:
+            m.filename = m.name
+        return members
+
+    def namelist(self):
+        return self.getnames()
+
+
+def get_compressed_file_wrapper(path):
+    """ From https://github.com/OpenBounds/Processing/blob/master/utils.py
+    """
+    ARCHIVE_FORMAT_ZIP = "zip"
+    ARCHIVE_FORMAT_TAR_GZ = "tar.gz"
+    ARCHIVE_FORMAT_TAR_BZ2 = "tar.bz2"
+    archive_format = None
+    if path.endswith(".zip"):
+        archive_format = ARCHIVE_FORMAT_ZIP
+    elif path.endswith(".tar.gz") or path.endswith(".tgz"):
+        archive_format = ARCHIVE_FORMAT_TAR_GZ
+    elif path.endswith(".tar.bz2"):
+        archive_format = ARCHIVE_FORMAT_TAR_BZ2
     else:
-        config_dict = defaultconfig.copy()
-    return config_dict
+        try:
+            with zipfile.ZipFile(path, "r") as f:
+                archive_format = ARCHIVE_FORMAT_ZIP
+        except:
+            try:
+                f = tarfile.TarFile.open(path, "r")
+                f.close()
+                archive_format = ARCHIVE_FORMAT_ZIP
+            except:
+                pass
+    if archive_format is None:
+        raise Exception("Unable to determine archive format")
 
+    if archive_format == ARCHIVE_FORMAT_ZIP:
+        return zipfile.ZipFile(path, "r")
 
-def read_csv(path):
-    """
-    Load input csv file and return a list of dicts.
-    - List is sorted by 'hierarchy' column
-    - keys/columns added:
-        + 'input_table'   - 'a'+hierarchy+'_'+src_table
-        + 'tiled_table'   - 'b'+hierarchy+'_'+src_table
-        + 'cleaned_table' - 'c'+hierarchy+'_'+src_table
-    """
-    source_list = [source for source in csv.DictReader(open(path))]
-    for source in source_list:
-        # convert hierarchy value to integer
-        source.update(
-            (k, int(v)) for k, v in source.items() if k == "hierarchy" and v != ""
-        )
-        # for convenience, add the layer names to the dict
-        hierarchy = str(source["hierarchy"]).zfill(2)
-        input_table = "a" + hierarchy + "_" + source["alias"]
-        tiled_table = "b" + hierarchy + "_" + source["alias"]
-        cleaned_table = "c" + hierarchy + "_" + source["alias"]
-        source.update(
-            {
-                "input_table": input_table,
-                "cleaned_table": cleaned_table,
-                "tiled_table": tiled_table,
-            }
-        )
-    # return sorted list https://stackoverflow.com/questions/72899/
-    return sorted(source_list, key=lambda k: k["hierarchy"])
+    elif archive_format == ARCHIVE_FORMAT_TAR_GZ:
+        return ZipCompatibleTarFile.open(path, "r:gz")
 
-
-def tidy_designations(db, sources, designation_key, out_table):
-    """Add and populate 'category' column, tidy the national park designations
-    """
-    # add category (rollup) column by creating lookup table from source.csv
-    lookup_data = [
-        dict(alias=s[designation_key], category=s["category"])
-        for s in sources
-        if s["category"]
-    ]
-    # create lookup table
-    db["category_lookup"].drop()
-    db.execute(
-        """CREATE TABLE category_lookup
-                  (id SERIAL PRIMARY KEY, alias TEXT, category TEXT)"""
-    )
-    db["category_lookup"].insert(lookup_data)
-    # add category column
-    if "category" not in db[out_table].columns:
-        db.execute(
-            """ALTER TABLE {t}
-                      ADD COLUMN category TEXT
-                   """.format(
-                t=out_table
-            )
-        )
-    # populate category column from lookup
-    db.execute(
-        """UPDATE {t} AS o
-                  SET category = lut.category
-                  FROM category_lookup AS lut
-                  WHERE o.designation = lut.alias
-               """.format(
-            t=out_table
-        )
-    )
-    # Remove prefrixes and national park names from the designations tags
-    sql = """UPDATE {t}
-             SET designation = '01_park_national'
-             WHERE designation LIKE '%%01_park_national%%';
-
-             UPDATE {t}
-             SET designation = substring(designation from 2)
-             WHERE designation ~ '^[a-c][0-9]'
-          """.format(
-        t=out_table
-    )
-    db.execute(sql)
+    elif archive_format == ARCHIVE_FORMAT_TAR_BZ2:
+        return ZipCompatibleTarFile.open(path, "r:bz2")

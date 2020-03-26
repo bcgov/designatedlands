@@ -45,7 +45,6 @@ A complete run of the tool was completed on Sept 21, 2017, and the results are r
 
 5. Set the default schema and add the `lostgis` functions (adding database connection paramaters as required):
 
-    psql -c "ALTER ROLE designatedlands SET search_path TO public;"
     psql -f sql/ST_Safe_Difference.sql
     psql -f sql/ST_Safe_Intersection.sql
     psql -f sql/ST_Safe_Repair.sql
