@@ -316,7 +316,7 @@ class DesignatedLands(object):
         LOG.info("Creating: {}".format(out_table))
         sql = """
         CREATE TABLE {out_table} (
-          id serial PRIMARY KEY,
+          designatedlands_id serial PRIMARY KEY,
           designation text,
           designation_id text,
           designation_name text,

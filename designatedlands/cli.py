@@ -98,23 +98,21 @@ def cleanup(config_file, verbose, quiet):
 
 
 @cli.command()
+@click.argument("table")
 @click.argument("config_file", type=click.Path(exists=True), required=False)
-@click.option(
-    "--overwrite", is_flag=True, default=False, help="Overwrite any existing outputs",
-)
 @verbose_opt
 @quiet_opt
-def merge(config_file, overwrite, verbose, quiet):
-    """Clean inputs and merge into output 'overlaps' table
-    """
-    logger = get_logger(verbose, quiet)
-    DL = DesignatedLands(config_file, alias)
-
-    # if alias provided, only process that layer
-    if alias:
-        DL.sources = [s for s in DL.sources if s["alias"] == alias]
-    if not sources:
-        raise ValueError("Alias %s does not exist" % alias)
+def dump(table, config_file, verbose, quiet):
+    """Dump specified table to file"""
+    get_logger(verbose, quiet)
+    DL = DesignatedLands(config_file)
+    DL.db.pg2ogr(
+        "SELECT * FROM designatedlands.{}".format(table),
+        "GPKG",
+        DL.config["out_file"],
+        DL.config["out_table"],
+        geom_type="MULTIPOLYGON",
+    )
 
 
 """
@@ -256,57 +254,6 @@ def overlay(in_file, config_file, in_layer, dump_file, new_layer_name, verbose, 
     if dump_file:
         logger.info("Dumping intersect to file %s " % config["out_file"])
         dump(out_layer, config["out_file"], config["out_format"])
-
-
-@cli.command()
-@click.argument("config_file", type=click.Path(exists=True), required=False)
-@click.option(
-    "--overlaps",
-    is_flag=True,
-    default=False,
-    help="Dump output _overlaps table to file",
-)
-@click.option(
-    "--aggregate", is_flag=True, default=False, help="Aggregate over tile boundaries"
-)
-@verbose_opt
-@quiet_opt
-def dump(config_file, overlaps, aggregate, verbose, quiet):
-    """Dump output designatedlands table to file
-    """
-    config = util.read_config(config_file)
-    util.log_config(verbose, quiet)
-    logger = logging.getLogger(__name__)
-    if aggregate:
-        if overlaps:
-            util.log("ignoring --overlaps flag")
-        main.dump_aggregate(config, "designatedlands_agg")
-    else:
-        if overlaps:
-            config["out_table"] = config["out_table"] + "_overlaps"
-        db = pgdata.connect(config["db_url"], schema="public")
-        logger.info("Dumping %s to %s" % (config["out_table"], config["out_file"]))
-        columns = [
-            c
-            for c in db[config["out_table"]].columns
-            if c != "geom" and "prelim" not in c
-        ]
-        ogr_sql = """SELECT {cols},
-                    st_collectionextract(st_safe_repair(st_snaptogrid(geom, .001)), 3) as geom
-                    FROM {t}
-                    WHERE designation IS NOT NULL
-                """.format(
-            cols=",".join(columns), t=config["out_table"]
-        )
-        logger.info(ogr_sql)
-        db = pgdata.connect(config["db_url"])
-        db.pg2ogr(
-            ogr_sql,
-            config["out_format"],
-            config["out_file"],
-            config["out_table"],
-            geom_type="MULTIPOLYGON",
-        )
 
 
 if __name__ == "__main__":
