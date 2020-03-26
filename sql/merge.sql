@@ -16,17 +16,26 @@
 --   - merge/repair data in src_table
 --   - where available, retain source id and source name
 
--- insert cleaned data
+-- insert cleaned data plus restriction columns
+
+
 INSERT INTO $out_table (
   designation,
   designation_id,
   designation_name,
+  forest_restriction,
+  og_restriction,
+  mine_restriction,
   geom
 )
+
 SELECT
   '$out_table'::TEXT AS designation,
   a.$designation_id_col AS designation_id,
   a.$designation_name_col AS designation_name,
+  '$forest_restriction'::TEXT as forest_restriction,
+  '$og_restriction'::TEXT as og_restriction,
+  '$mine_restriction'::TEXT as mine_restriction,
   -- make sure the output is valid
   ST_Safe_Repair(
   -- dump

@@ -320,6 +320,9 @@ class DesignatedLands(object):
           designation text,
           designation_id text,
           designation_name text,
+          forest_restriction text,
+          og_restriction text,
+          mine_restriction text,
           geom geometry
         );
         """.format(
@@ -343,6 +346,9 @@ class DesignatedLands(object):
                 "src_table": input_table,
                 "designation_id_col": source["designation_id_col"],
                 "designation_name_col": source["designation_name_col"],
+                "forest_restriction": source["forest_restriction"],
+                "og_restriction": source["og_restriction"],
+                "mine_restriction": source["mine_restriction"]
             }
             sql = self.db.build_query(self.db.queries["merge"], lookup)
             self.db.execute(sql)
