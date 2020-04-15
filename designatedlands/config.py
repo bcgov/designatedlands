@@ -6,4 +6,5 @@ defaultconfig = {
     "out_file": "designatedlands.gpkg",
     "db_url": "postgresql://designatedlands:designatedlands@localhost:5434/designatedlands",
     "n_processes": -1,
+    "resolution": 10
 }

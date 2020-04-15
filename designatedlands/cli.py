@@ -72,6 +72,8 @@ def download(config_file, alias, overwrite, verbose, quiet):
 @verbose_opt
 @quiet_opt
 def preprocess(config_file, alias, overwrite, verbose, quiet):
+    """Preprocess source layers where required
+    """
     get_logger(verbose, quiet)
     DL = DesignatedLands(config_file)
     DL.preprocess(alias=alias)
@@ -82,6 +84,8 @@ def preprocess(config_file, alias, overwrite, verbose, quiet):
 @verbose_opt
 @quiet_opt
 def tidy(config_file, verbose, quiet):
+    """Merge source layers into a single designatedlands table
+    """
     get_logger(verbose, quiet)
     DL = DesignatedLands(config_file)
     DL.tidy()
@@ -92,6 +96,8 @@ def tidy(config_file, verbose, quiet):
 @verbose_opt
 @quiet_opt
 def cleanup(config_file, verbose, quiet):
+    """Remove temporary tables
+    """
     get_logger(verbose, quiet)
     DL = DesignatedLands(config_file)
     DL.cleanup()

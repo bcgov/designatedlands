@@ -77,8 +77,9 @@ If running a new analysis, download data sources specified as **manual downloads
 Using the `designatedlands` tool, load and process all data then dump the results to geopackage:
 
 ```
-$ designatedlands load
-$ designatedlands process
+$ designatedlands download
+$ designatedlands preprocess
+$ designatedlands tidy
 $ designatedlands dump
 ```
 

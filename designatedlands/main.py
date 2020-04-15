@@ -18,16 +18,19 @@ from xml.sax.saxutils import escape
 import configparser
 import os
 import csv
+from math import ceil
 from urllib.parse import urlparse
 import subprocess
 
+import click
+from geoalchemy2 import Geometry
+import pandas as pd
+import geopandas as gpd
 from sqlalchemy.schema import Column
 from sqlalchemy.types import Integer, UnicodeText
-from geoalchemy2 import Geometry
+from affine import Affine
 
-import click
 import pgdata
-
 import designatedlands
 from designatedlands.config import defaultconfig
 from designatedlands import util
@@ -102,6 +105,19 @@ class DesignatedLands(object):
         # sort by hierarchy
         self.sources = sorted(designation_list, key=lambda k: int(k["hierarchy"]))
 
+        # make sure hierarchy numbers are valid
+        self.validate_sources()
+
+        # create designation property, a list of dicts.
+        # Initialize simply with {"hierarchy": n, "designation": val},
+        self.designations = (
+            pd.DataFrame(self.sources)
+            .astype({"hierarchy": int})[["hierarchy", "designation"]]
+            .drop_duplicates()
+            .sort_values("hierarchy")
+            .to_dict("records")
+        )
+
         # add id column, convert hierarchy to filled string
         for i, source in enumerate(self.sources, start=1):
             source["id"] = i
@@ -114,7 +130,10 @@ class DesignatedLands(object):
             )
             source["preprc"] = source["src"] + "_preprc"
             source["dl"] = (
-                "designatedlands.dl_" + source["hierarchy"] + "_" + source["designation"]
+                "designatedlands.dl_"
+                + source["hierarchy"]
+                + "_"
+                + source["designation"]
             )
 
         # read list of supporting layers and remove excluded rows
@@ -151,6 +170,18 @@ class DesignatedLands(object):
             self.config["sources_designations"],
         ]
         subprocess.run(cmd)
+
+    def validate_sources(self):
+        """Make sure hierarchy is sequential
+        """
+        # check that hierarchy numbers start at 1 and end at n designations
+        h = list(set(int(d["hierarchy"]) for d in self.sources))
+        if min(h) != 1:
+            raise ValueError("Lowest hierarchy in source table must be 1")
+        if min(h) + len(h) != max(h):
+            raise ValueError(
+                "Highest hierarchy value in source table must be equivalent to the number of unique designations"
+            )
 
     def download(self, alias=None, overwrite=False):
         """Download source data"""
@@ -349,13 +380,63 @@ class DesignatedLands(object):
                 "source_name_col": source["source_name_col"],
                 "forest_restriction": source["forest_restriction"],
                 "og_restriction": source["og_restriction"],
-                "mine_restriction": source["mine_restriction"]
+                "mine_restriction": source["mine_restriction"],
             }
             sql = self.db.build_query(self.db.queries["merge"], lookup)
             self.db.execute(sql)
 
         # index geom
         self.db[out_table].create_index_geom()
+
+    def rasterize(self, designation=None):
+        """Convert each designation raster to raster held in numpy array
+        """
+        from rasterio.features import rasterize
+
+        res = (self.config["resolution"], self.config["resolution"])
+
+        # define bounds manually
+        bounds = [273360.0, 367780.0, 1870590.0, 1735730.0]
+
+        width = max(int(ceil((bounds[2] - bounds[0]) / float(res[0]))), 1)
+        height = max(int(ceil((bounds[3] - bounds[1]) / float(res[1]))), 1)
+
+        kwargs = {
+            'count': 1,
+            'crs': "EPSG:3005",
+            'width': width,
+            'height': height,
+            'transform': Affine(res[0], 0, bounds[0], 0, -res[1], bounds[3]),
+            'nodata': 255,
+        }
+
+        # load each designation into memory
+        self.rasters = {}
+        if designation:
+            designations = [d for d in self.designations if d["designation"] == designation]
+        else:
+            designations = self.designations
+        for desig in designations:
+            LOG.info("Rasterizing "+desig["designation"])
+            gdf = gpd.read_postgis(
+                "SELECT * FROM designatedlands.designatedlands WHERE designation=%s",
+                con=self.db.engine,
+                params=(desig["designation"],)
+            )
+            geometries = ((geom, desig["hierarchy"]) for geom in gdf.geometry)
+            self.rasters[desig["designation"]] = rasterize(
+                geometries,
+                out_shape=(kwargs['height'], kwargs['width']),
+                transform=kwargs['transform'],
+                all_touched=False,
+                dtype='uint8',
+                default_value=0,
+                fill=255
+            )
+
+        # first, load bc boundary
+        #bnd = gpd.from_postgis("SELECT * FROM designatedlands.bc_boundary_land", self.db.engine)
+        #geometries = ((geom, 0) for geom in bnd.geometry)
 
     def get_tiles(self, table, tile_table="tiles_250k"):
         """Return a list of all tiles intersecting supplied table
