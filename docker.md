@@ -31,4 +31,4 @@ Running the container like this:
 
 As long as you don't remove this container it will retain all the data you put in it. To start it up again:
 
- `docker start pgsql`
+ `docker start dlpg`

@@ -20,6 +20,7 @@
 
 
 INSERT INTO $out_table (
+  hierarchy,
   designation,
   source_id,
   source_name,
@@ -30,6 +31,7 @@ INSERT INTO $out_table (
 )
 
 SELECT
+  $hierarchy AS hierarchy,
   '$desig_type'::TEXT AS designation,
   $source_id_col AS designation_id,
   $source_name_col AS designation_name,

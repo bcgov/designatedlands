@@ -21,9 +21,12 @@ import csv
 from math import ceil
 from urllib.parse import urlparse
 import subprocess
+from pathlib import Path
 
 import click
 from geoalchemy2 import Geometry
+import rasterio
+from rasterio import features
 import pandas as pd
 import geopandas as gpd
 from sqlalchemy.schema import Column
@@ -52,6 +55,8 @@ class DesignatedLands(object):
 
     def __init__(self, config_file=None):
 
+        LOG.info("Initializing designatedlands v{}".format(designatedlands.__version__))
+
         if config_file:
             if not os.path.exists(config_file):
                 raise ConfigValueError(f"File {config_file} does not exist")
@@ -70,10 +75,26 @@ class DesignatedLands(object):
 
         self.db = pgdata.connect(self.config["db_url"])
 
-        LOG.info("Initializing designatedlands v{}".format(designatedlands.__version__))
-
         # load sources
         self.read_sources()
+
+        # note output raster parameters
+        res = (self.config["resolution"], self.config["resolution"])
+
+        # define bounds manually
+        bounds = [273360.0, 367780.0, 1870590.0, 1735730.0]
+
+        width = max(int(ceil((bounds[2] - bounds[0]) / float(res[0]))), 1)
+        height = max(int(ceil((bounds[3] - bounds[1]) / float(res[1]))), 1)
+
+        self.raster_kwargs = {
+            'count': 1,
+            'crs': "EPSG:3005",
+            'width': width,
+            'height': height,
+            'transform': Affine(res[0], 0, bounds[0], 0, -res[1], bounds[3]),
+            'nodata': 255,
+        }
 
     def read_config(self):
         """Load and read provided configuration file
@@ -348,6 +369,7 @@ class DesignatedLands(object):
         sql = """
         CREATE TABLE {out_table} (
           designatedlands_id serial PRIMARY KEY,
+          hierarchy integer,
           designation text,
           source_id text,
           source_name text,
@@ -375,6 +397,7 @@ class DesignatedLands(object):
             lookup = {
                 "out_table": out_table,
                 "src_table": input_table,
+                "hierarchy": source["hierarchy"],
                 "desig_type": source["designation"],
                 "source_id_col": source["source_id_col"],
                 "source_name_col": source["source_name_col"],
@@ -388,55 +411,97 @@ class DesignatedLands(object):
         # index geom
         self.db[out_table].create_index_geom()
 
-    def rasterize(self, designation=None):
-        """Convert each designation raster to raster held in numpy array
+    def rasterize(self):
         """
-        from rasterio.features import rasterize
+        Dump all designatinons to raster
+        We use gdal_rasterize because:
+        - easy (processing rasterio in parallel requires some coding)
+        - handy to have the temp rasters written to disk in case of problems
+        """
+        # create output folder
+        Path("rasters").mkdir(parents=True, exist_ok=True)
+        # build gdal_rasterize command
+        # Note - do not create a tiled tiff (-co TILED=YES)
+        # This option requires setting the GDAL_CACHEMAX to avoid hitting a
+        # gdal bug https://github.com/OSGeo/gdal/issues/2261), and when setting
+        # the cache to just under 2G, the process is far slower than writing to
+        # a stripped tif
+        gdal_rasterize = [
+            "gdal_rasterize",
+            "-a_nodata",
+            "255",
+            "-co",
+            "COMPRESS=DEFLATE",
+            "-co",
+            "NUM_THREADS=ALL_CPUS",
+            "-ot",
+            "Byte",
+            "-tr",
+            "10",
+            "10",
+            "-te",
+            "273360.0",
+            "367780.0",
+            "1870590.0",
+            "1735730.0",
+            "-tap",
+            self.db.ogr_string
+        ]
+        # first, rasterize bc boundary
+        query = "SELECT * FROM designatedlands.bc_boundary_land"
+        hierarchy = 0
+        command = gdal_rasterize + [
+            "-burn",
+            f"{hierarchy}",
+            "-sql",
+            f"{query}",
+            f"rasters/dl_{hierarchy}.tif"
+        ]
+        LOG.info(" ".join(command))
+        subprocess.run(command)
+        # then rasterize the rest
+        for hierarchy in reversed(list(set([int(s["hierarchy"]) for s in self.sources]))):
+            query = f"SELECT * FROM designatedlands.designatedlands WHERE hierarchy={hierarchy}"
+            command = gdal_rasterize + [
+                "-burn",
+                f"{hierarchy}",
+                "-sql",
+                f"{query}",
+                f"rasters/dl_{hierarchy}.tif"
+            ]
+            LOG.info(" ".join(command))
+            subprocess.run(command)
 
-        res = (self.config["resolution"], self.config["resolution"])
+    def overlay_rasters(self):
+        """Overlay raster designations to remove overlaps
+        """
+        LOG.info("Overlaying rasters")
 
-        # define bounds manually
-        bounds = [273360.0, 367780.0, 1870590.0, 1735730.0]
+        # initialize output raster with BC boundary
+        A = rasterio.open("rasters/dl_0.tif").read(1)
 
-        width = max(int(ceil((bounds[2] - bounds[0]) / float(res[0]))), 1)
-        height = max(int(ceil((bounds[3] - bounds[1]) / float(res[1]))), 1)
+        # loop backwards through designations
+        for hierarchy in reversed(list(set([int(s["hierarchy"]) for s in self.sources]))):
+            LOG.info("loading hierarchy n"+str(hierarchy))
+            B = rasterio.open(f"rasters/dl_{hierarchy}.tif").read(1)
+            # set output raster to hierarchy value
+            LOG.info("calculating")
+            A[(A >= 0) & (A != 255) & (B == hierarchy)] = hierarchy
 
-        kwargs = {
-            'count': 1,
-            'crs': "EPSG:3005",
-            'width': width,
-            'height': height,
-            'transform': Affine(res[0], 0, bounds[0], 0, -res[1], bounds[3]),
-            'nodata': 255,
-        }
-
-        # load each designation into memory
-        self.rasters = {}
-        if designation:
-            designations = [d for d in self.designations if d["designation"] == designation]
-        else:
-            designations = self.designations
-        for desig in designations:
-            LOG.info("Rasterizing "+desig["designation"])
-            gdf = gpd.read_postgis(
-                "SELECT * FROM designatedlands.designatedlands WHERE designation=%s",
-                con=self.db.engine,
-                params=(desig["designation"],)
-            )
-            geometries = ((geom, desig["hierarchy"]) for geom in gdf.geometry)
-            self.rasters[desig["designation"]] = rasterize(
-                geometries,
-                out_shape=(kwargs['height'], kwargs['width']),
-                transform=kwargs['transform'],
-                all_touched=False,
-                dtype='uint8',
-                default_value=0,
-                fill=255
-            )
-
-        # first, load bc boundary
-        #bnd = gpd.from_postgis("SELECT * FROM designatedlands.bc_boundary_land", self.db.engine)
-        #geometries = ((geom, 0) for geom in bnd.geometry)
+        # write final raster to disk
+        with rasterio.open(
+            "output.tif",
+            "w",
+            driver="GTiff",
+            dtype='uint8',
+            count=1,
+            width=self.raster_kwargs["width"],
+            height=self.raster_kwargs["height"],
+            crs="EPSG:3005",
+            transform=self.raster_kwargs["transform"],
+            nodata=255,
+        ) as dst:
+            dst.write(A, indexes=1)
 
     def get_tiles(self, table, tile_table="tiles_250k"):
         """Return a list of all tiles intersecting supplied table

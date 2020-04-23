@@ -25,7 +25,7 @@ from designatedlands import DesignatedLands
 from designatedlands import main
 
 
-def get_logger(verbose, quiet):
+def set_log_level(verbose, quiet):
     verbosity = verbose - quiet
     log_level = max(10, 20 - 10 * verbosity)  # default to INFO log level
     logging.basicConfig(
@@ -33,7 +33,6 @@ def get_logger(verbose, quiet):
         level=log_level,
         format="%(asctime)s %(name)-12s %(levelname)-8s %(message)s",
     )
-    return logging.getLogger(__name__)
 
 
 @click.group()
@@ -55,7 +54,7 @@ def cli():
 def download(config_file, alias, overwrite, verbose, quiet):
     """Download data, load to postgres
     """
-    get_logger(verbose, quiet)
+    set_log_level(verbose, quiet)
     DL = DesignatedLands(config_file)
     DL.download(alias=alias, overwrite=overwrite)
 
@@ -74,7 +73,7 @@ def download(config_file, alias, overwrite, verbose, quiet):
 def preprocess(config_file, alias, overwrite, verbose, quiet):
     """Preprocess source layers where required
     """
-    get_logger(verbose, quiet)
+    set_log_level(verbose, quiet)
     DL = DesignatedLands(config_file)
     DL.preprocess(alias=alias)
 
@@ -86,7 +85,7 @@ def preprocess(config_file, alias, overwrite, verbose, quiet):
 def tidy(config_file, verbose, quiet):
     """Merge source layers into a single designatedlands table
     """
-    get_logger(verbose, quiet)
+    set_log_level(verbose, quiet)
     DL = DesignatedLands(config_file)
     DL.tidy()
 
@@ -98,7 +97,7 @@ def tidy(config_file, verbose, quiet):
 def cleanup(config_file, verbose, quiet):
     """Remove temporary tables
     """
-    get_logger(verbose, quiet)
+    set_log_level(verbose, quiet)
     DL = DesignatedLands(config_file)
     DL.cleanup()
 
@@ -110,7 +109,7 @@ def cleanup(config_file, verbose, quiet):
 @quiet_opt
 def dump(table, config_file, verbose, quiet):
     """Dump specified table to file"""
-    get_logger(verbose, quiet)
+    set_log_level(verbose, quiet)
     DL = DesignatedLands(config_file)
     DL.db.pg2ogr(
         "SELECT * FROM designatedlands.{}".format(table),
@@ -119,6 +118,30 @@ def dump(table, config_file, verbose, quiet):
         DL.config["out_table"],
         geom_type="MULTIPOLYGON",
     )
+
+
+@cli.command()
+@click.argument("config_file", type=click.Path(exists=True), required=False)
+@verbose_opt
+@quiet_opt
+def rasterize(config_file, verbose, quiet):
+    """Remove temporary tables
+    """
+    set_log_level(verbose, quiet)
+    DL = DesignatedLands(config_file)
+    DL.rasterize()
+
+
+@cli.command()
+@click.argument("config_file", type=click.Path(exists=True), required=False)
+@verbose_opt
+@quiet_opt
+def overlay_rasters(config_file, verbose, quiet):
+    """Remove temporary tables
+    """
+    set_log_level(verbose, quiet)
+    DL = DesignatedLands(config_file)
+    DL.overlay_rasters()
 
 
 @cli.command()
@@ -134,7 +157,7 @@ def dump(table, config_file, verbose, quiet):
 def overlay(in_file, config_file, in_layer, dump_file, new_layer_name, verbose, quiet):
     """Intersect layer with designatedlands
     """
-    get_logger(verbose, quiet)
+    set_log_level(verbose, quiet)
     DL = DesignatedLands(config_file)
 
     if not in_layer:
