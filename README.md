@@ -66,24 +66,29 @@ This pattern should work on most OS.
           -e PG_DATABASE=designatedlands ^
           --name=dlpg ^
           crunchydata/crunchy-postgres-appdev
-  Running the container like this:
 
-    - runs PostgreSQL in the background as a daemon
-    - allows you to connect to it on port 5433 from localhost or 127.0.0.1 (port number modified to avoid conflict with existing installations)
-    - sets the default user to designatedlands
-    - sets the password for this user *and * the postgres user to password
-    - creates a PostGIS and PL/R enabled database named designatedlands
-    - names the container dlpg
+10. Finally, add the `lostgis` functions to the database (again, modifying database connection paramaters as required):
 
-    As long as you don't remove this container it will retain all the data you put in it. To start it up again:
+
+        psql -U designatedlands -f sql/ST_Safe_Difference.sql designatedlands
+        psql -U designatedlands -f sql/ST_Safe_Intersection.sql designatedlands
+        psql -U designatedlands -f sql/ST_Safe_Repair.sql designatedlands
+
+
+### Additional Docker notes
+
+running the container like this:
+
+  - runs PostgreSQL in the background as a daemon
+  - allows you to connect to it on port 5433 from localhost or 127.0.0.1 (port number modified to avoid conflict with existing installations)
+  - sets the default user to designatedlands
+  - sets the password for this user *and * the postgres user to password
+  - creates a PostGIS and PL/R enabled database named designatedlands
+  - names the container dlpg
+
+  As long as you don't remove this container it will retain all the data you put in it. To start it up again:
 
         docker start dlpg
-
-5. Add the `lostgis` functions to the database (again, modifying database connection paramaters as required):
-
-    psql -U designatedlands -f sql/ST_Safe_Difference.sql designatedlands
-    psql -U designatedlands -f sql/ST_Safe_Intersection.sql designatedlands
-    psql -U designatedlands -f sql/ST_Safe_Repair.sql designatedlands
 
 
 ## Configuration
