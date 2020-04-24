@@ -11,43 +11,79 @@ A complete run of the tool was completed on Sept 21, 2017, and the results are r
 ## Requirements
 
 - Python 3.7+
-- GDAL (with `ogr2ogr` available at the command line) (tested with GDAL 2.4.4)
+- GDAL (with `ogr2ogr` available at the command line) (tested with GDAL 3.0.2)
 - a PostGIS enabled PostgreSQL database (tested with Postgres 11.6, PostGIS 2.5.3 via Docker container `crunchydata/crunchy-postgres-appdev`)
 
 
 ## Optional
 
+- `conda` for managing Python requirements
 - Docker for easy installation of PostgreSQL/PostGIS
-- `conda` for easy installation of other required tools on any platform
-- to aggregate output data across tiles, use [mapshaper](https://github.com/mbloch/mapshaper)
 
 
-## Installation
+## Installation (with conda and Docker)
 
-1. Install the requirements noted above. See [docker.md](docker.md) for a guide to installing PostgreSQL/PostGIS via Docker.
+This pattern should work on most OS.
 
-2. Clone the repository:
+1. Install Anaconda or [miniconda](https://docs.conda.io/en/latest/miniconda.html)
+
+2. Open a [conda command prompt](https://docs.conda.io/projects/conda/en/latest/user-guide/getting-started.html)
+
+3. Create and activate a conda enviornment for the project:
+
+        $ conda create --name designatedlands
+        $ conda activate designatedlands
+
+1. Clone the repository and navigate to the project folder:
 
         $ git clone https://github.com/bcgov/designatedlands.git
         $ cd designatedlands
 
-3. Ensure Python, `pip` and `ogr2ogr` are all available at your command line.
+4. Install `fiona` and `rasterio` using conda:
 
-4. Install designatedlands (consider using a virtualenv):
+        $ conda install fiona rasterio
 
-    **MacOS/linux**
+6. Install the designatedlands package
 
-        $ pip install .
+        $ pip install -e .
 
-     **Windows**
 
-     First, download the appropriate prebuilt wheel for Fiona following [this guide](https://github.com/Toblerity/Fiona#windows). The GDAL wheel may also be required. Install fiona using `pipenv`. Once fiona is installed, `pip install .` should work to install other dependencies.
+7. Download and install Docker using the appropriate link for your OS:
+    - [MacOS](https://download.docker.com/mac/stable/Docker.dmg)
+    - [Windows](https://download.docker.com/win/stable/Docker%20Desktop%20Installer.exe)
 
-5. Set the default schema and add the `lostgis` functions (adding database connection paramaters as required):
+8. Get the database docker [container](https://hub.docker.com/r/crunchydata/crunchy-postgres-appdev):
 
-    psql -f sql/ST_Safe_Difference.sql
-    psql -f sql/ST_Safe_Intersection.sql
-    psql -f sql/ST_Safe_Repair.sql
+
+        docker pull crunchydata/crunchy-postgres-appdev
+
+9. Run the container (modifying parameters to match those in the `db_url` variable in your `designatedlands.cfg` file)
+
+        docker run -d ^
+          -p 5432:5432 ^
+          -e PG_USER=designatedlands ^
+          -e PG_PASSWORD=designatedlands ^
+          -e PG_DATABASE=designatedlands ^
+          --name=dlpg ^
+          crunchydata/crunchy-postgres-appdev
+  Running the container like this:
+
+    - runs PostgreSQL in the background as a daemon
+    - allows you to connect to it on port 5433 from localhost or 127.0.0.1 (port number modified to avoid conflict with existing installations)
+    - sets the default user to designatedlands
+    - sets the password for this user *and * the postgres user to password
+    - creates a PostGIS and PL/R enabled database named designatedlands
+    - names the container dlpg
+
+    As long as you don't remove this container it will retain all the data you put in it. To start it up again:
+
+        docker start dlpg
+
+5. Add the `lostgis` functions to the database (again, modifying database connection paramaters as required):
+
+    psql -U designatedlands -f sql/ST_Safe_Difference.sql designatedlands
+    psql -U designatedlands -f sql/ST_Safe_Intersection.sql designatedlands
+    psql -U designatedlands -f sql/ST_Safe_Repair.sql designatedlands
 
 
 ## Configuration
