@@ -77,10 +77,10 @@ This pattern should work on most OS.
 
 ### Additional Docker notes
 
-running the container like this:
+Running the container like this:
 
   - runs PostgreSQL in the background as a daemon
-  - allows you to connect to it on port 5433 from localhost or 127.0.0.1 (port number modified to avoid conflict with existing installations)
+  - allows you to connect to it on port 5432 from localhost or 127.0.0.1 (port number modified to avoid conflict with existing installations)
   - sets the default user to designatedlands
   - sets the password for this user *and * the postgres user to password
   - creates a PostGIS and PL/R enabled database named designatedlands

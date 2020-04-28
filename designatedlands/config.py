@@ -4,7 +4,7 @@ defaultconfig = {
     "sources_supporting": "sources_supporting.csv",
     "out_table": "designatedlands",
     "out_file": "designatedlands.gpkg",
-    "db_url": "postgresql://designatedlands:designatedlands@localhost:5434/designatedlands",
+    "db_url": "postgresql://designatedlands:designatedlands@localhost:5432/designatedlands",
     "n_processes": -1,
     "resolution": 10
 }
