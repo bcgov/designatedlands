@@ -139,9 +139,19 @@ class DesignatedLands(object):
             .to_dict("records")
         )
 
-        # add id column, convert hierarchy to filled string
+        # add id column, convert hierarchy to filled string, strip other values
         for i, source in enumerate(self.sources, start=1):
             source["id"] = i
+            # make sure there are no leading/trailing spaces introduced
+            # (from editing source csv in excel)
+            source["designation"] = source["designation"].strip()
+            source["designation"] = source["designation"].strip()
+            source["source_id_col"] = source["source_id_col"].strip()
+            source["source_name_col"] = source["source_name_col"].strip()
+            source["forest_restriction"] = source["forest_restriction"].strip()
+            source["og_restriction"] = source["og_restriction"].strip()
+            source["mine_restriction"] = source["mine_restriction"].strip()
+
             source["hierarchy"] = str(source["hierarchy"]).zfill(2)
             source["src"] = (
                 "designatedlands.src_"
