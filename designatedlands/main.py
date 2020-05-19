@@ -206,12 +206,13 @@ class DesignatedLands(object):
         """Make sure hierarchy is sequential
         """
         # check that hierarchy numbers start at 1 and end at n designations
-        h = list(set(int(d["hierarchy"]) for d in self.sources))
+        h = list(set(int(d["hierarchy"]) for d in self.sources if d["exclude"] != "T"))
         if min(h) != 1:
             raise ValueError("Lowest hierarchy in source table must be 1")
-        if min(h) + len(h) != max(h):
+        if min(h) + len(h) != max(h) + 1:
             raise ValueError(
-                "Highest hierarchy value in source table must be equivalent to the number of unique designations"
+                "Highest hierarchy value in source table must be equivalent "
+                "to the number of unique (non-excluded) designations"
             )
 
     def download(self, alias=None, overwrite=False):
@@ -450,11 +451,10 @@ class DesignatedLands(object):
             "10",
             "10",
             "-te",
-            "273360.0",
-            "367780.0",
-            "1870590.0",
-            "1735730.0",
-            "-tap",
+            "273287.5",
+            "367687.5",
+            "1870687.5",
+            "1735887.5",
             self.db.ogr_string
         ]
         # first, rasterize bc boundary
