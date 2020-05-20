@@ -29,6 +29,7 @@ import rasterio
 from rasterio import features
 import pandas as pd
 import geopandas as gpd
+import numpy as np
 from sqlalchemy.schema import Column
 from sqlalchemy.types import Integer, UnicodeText
 from affine import Affine
@@ -57,13 +58,15 @@ class DesignatedLands(object):
 
         LOG.info("Initializing designatedlands v{}".format(designatedlands.__version__))
 
+        # load default config
+        self.config = defaultconfig.copy()
+
+        # if provided with a config file, replace config values with those present in
+        # thie config file
         if config_file:
             if not os.path.exists(config_file):
                 raise ConfigValueError(f"File {config_file} does not exist")
-            self.config_file = config_file
-            self.read_config()
-        else:
-            self.config = defaultconfig.copy()
+            self.read_config(config_file)
 
         # set default n_processes to the number of cores available minus one
         if self.config["n_processes"] == -1:
@@ -75,43 +78,68 @@ class DesignatedLands(object):
 
         self.db = pgdata.connect(self.config["db_url"])
 
-        # load sources
+        # define valid restriction classes and assign raster values
+        self.restriction_lookup = {
+            "FULL": 4,
+            "HIGH": 3,
+            "MEDIUM": 2,
+            "LOW": 1,
+            "NONE": 0,
+        }
+        # load sources from csv
         self.read_sources()
 
-        # note output raster parameters
-        res = (self.config["resolution"], self.config["resolution"])
-
         # define bounds manually
-        bounds = [273360.0, 367780.0, 1870590.0, 1735730.0]
+        self.bounds = [273287.5, 367687.5, 1870687.5, 1735887.5]
 
-        width = max(int(ceil((bounds[2] - bounds[0]) / float(res[0]))), 1)
-        height = max(int(ceil((bounds[3] - bounds[1]) / float(res[1]))), 1)
+        width = max(
+            int(
+                ceil(
+                    (self.bounds[2] - self.bounds[0]) / float(self.config["resolution"])
+                )
+            ),
+            1,
+        )
+        height = max(
+            int(
+                ceil(
+                    (self.bounds[3] - self.bounds[1]) / float(self.config["resolution"])
+                )
+            ),
+            1,
+        )
 
-        self.raster_kwargs = {
-            'count': 1,
-            'crs': "EPSG:3005",
-            'width': width,
-            'height': height,
-            'transform': Affine(res[0], 0, bounds[0], 0, -res[1], bounds[3]),
-            'nodata': 255,
+        self.raster_profile = {
+            "count": 1,
+            "crs": "EPSG:3005",
+            "width": width,
+            "height": height,
+            "transform": Affine(
+                self.config["resolution"],
+                0,
+                self.bounds[0],
+                0,
+                -self.config["resolution"],
+                self.bounds[3],
+            ),
+            "nodata": 255,
         }
 
-    def read_config(self):
+    def read_config(self, config_file):
         """Load and read provided configuration file
         """
-        if self.config_file:
-            if not os.path.exists(self.config_file):
-                raise ConfigValueError(f"File {self.config_file} does not exist")
-            config = configparser.ConfigParser()
-            config.read(self.config_file)
-            config_dict = dict(config["designatedlands"])
-            # make sure output table is lowercase
-            config_dict["out_table"] = config_dict["out_table"].lower()
-            # convert n_processes to integer
+        config = configparser.ConfigParser()
+        config.read(config_file)
+        config_dict = dict(config["designatedlands"])
+        # make sure output folder is lowercase
+        if "out_path" in config_dict:
+            config_dict["out_path"] = config_dict["out_path"].lower()
+        # convert n_processes and resolution to integer
+        if "n_processes" in config_dict:
             config_dict["n_processes"] = int(config_dict["n_processes"])
-        else:
-            config_dict = defaultconfig.copy()
-        return config_dict
+        if "resolution" in config_dict:
+            config_dict["resolution"] = int(config_dict["resolution"])
+        self.config.update(config_dict)
 
     def read_sources(self):
         """Load input csv files listing data sources
@@ -126,7 +154,19 @@ class DesignatedLands(object):
         # sort by hierarchy
         self.sources = sorted(designation_list, key=lambda k: int(k["hierarchy"]))
 
-        # make sure hierarchy numbers are valid
+        # tidy strings
+        for source in self.sources:
+            for column in [
+                "designation",
+                "source_id_col",
+                "source_name_col",
+                "forest_restriction",
+                "og_restriction",
+                "mine_restriction",
+            ]:
+                source[column] = source[column].strip()
+
+        # do some basic checks on the input csv to see if hierarchy and restriction classes make sense
         self.validate_sources()
 
         # create designation property, a list of dicts.
@@ -144,13 +184,18 @@ class DesignatedLands(object):
             source["id"] = i
             # make sure there are no leading/trailing spaces introduced
             # (from editing source csv in excel)
-            source["designation"] = source["designation"].strip()
-            source["designation"] = source["designation"].strip()
-            source["source_id_col"] = source["source_id_col"].strip()
-            source["source_name_col"] = source["source_name_col"].strip()
-            source["forest_restriction"] = source["forest_restriction"].strip()
-            source["og_restriction"] = source["og_restriction"].strip()
-            source["mine_restriction"] = source["mine_restriction"].strip()
+            source["designation"] = source["designation"]
+            source["source_id_col"] = source["source_id_col"]
+            source["source_name_col"] = source["source_name_col"]
+            source["forest_restriction"] = self.restriction_lookup[
+                source["forest_restriction"].upper()
+            ]
+            source["og_restriction"] = self.restriction_lookup[
+                source["og_restriction"].upper()
+            ]
+            source["mine_restriction"] = self.restriction_lookup[
+                source["mine_restriction"].upper()
+            ]
 
             source["hierarchy"] = str(source["hierarchy"]).zfill(2)
             source["src"] = (
@@ -214,6 +259,26 @@ class DesignatedLands(object):
                 "Highest hierarchy value in source table must be equivalent "
                 "to the number of unique (non-excluded) designations"
             )
+        # check that restriction classes are valid, as per self.restriction_lookup
+        for d in self.sources:
+            if d["forest_restriction"].upper() not in self.restriction_lookup:
+                raise ValueError(
+                    "Invalid forest_restriction value {f} for source {d}".format(
+                        f=d["forest_restriction"], d=d["designation"]
+                    )
+                )
+            if d["og_restriction"].upper() not in self.restriction_lookup:
+                raise ValueError(
+                    "Invalid og_restriction value of {f} for source {d}".format(
+                        f=d["forest_restriction"], d=d["designation"]
+                    )
+                )
+            if d["mine_restriction"].upper() not in self.restriction_lookup:
+                raise ValueError(
+                    "Invalid mine_restriction value {f} for source {d}".format(
+                        f=d["forest_restriction"], d=d["designation"]
+                    )
+                )
 
     def download(self, alias=None, overwrite=False):
         """Download source data"""
@@ -426,10 +491,10 @@ class DesignatedLands(object):
         """
         Dump all designatinons to raster
         We use gdal_rasterize because:
-        - easy (processing rasterio in parallel requires some coding)
+        - easy (processing rasterio in parallel requires additional code)
         - handy to have the temp rasters written to disk in case of problems
         """
-        # create output folder
+        # create temp raster folder
         Path("rasters").mkdir(parents=True, exist_ok=True)
         # build gdal_rasterize command
         # Note - do not create a tiled tiff (-co TILED=YES)
@@ -448,14 +513,14 @@ class DesignatedLands(object):
             "-ot",
             "Byte",
             "-tr",
-            "10",
-            "10",
+            str(self.config["resolution"]),
+            str(self.config["resolution"]),
             "-te",
-            "273287.5",
-            "367687.5",
-            "1870687.5",
-            "1735887.5",
-            self.db.ogr_string
+            str(self.bounds[0]),
+            str(self.bounds[1]),
+            str(self.bounds[2]),
+            str(self.bounds[3]),
+            self.db.ogr_string,
         ]
         # first, rasterize bc boundary
         query = "SELECT * FROM designatedlands.bc_boundary_land"
@@ -465,19 +530,21 @@ class DesignatedLands(object):
             f"{hierarchy}",
             "-sql",
             f"{query}",
-            f"rasters/dl_{hierarchy}.tif"
+            f"rasters/dl_{hierarchy}.tif",
         ]
         LOG.info(" ".join(command))
         subprocess.run(command)
         # then rasterize the rest
-        for hierarchy in reversed(list(set([int(s["hierarchy"]) for s in self.sources]))):
+        for hierarchy in reversed(
+            list(set([int(s["hierarchy"]) for s in self.sources]))
+        ):
             query = f"SELECT * FROM designatedlands.designatedlands WHERE hierarchy={hierarchy}"
             command = gdal_rasterize + [
                 "-burn",
                 f"{hierarchy}",
                 "-sql",
                 f"{query}",
-                f"rasters/dl_{hierarchy}.tif"
+                f"rasters/dl_{hierarchy}.tif",
             ]
             LOG.info(" ".join(command))
             subprocess.run(command)
@@ -487,31 +554,78 @@ class DesignatedLands(object):
         """
         LOG.info("Overlaying rasters")
 
-        # initialize output raster with BC boundary
-        A = rasterio.open("rasters/dl_0.tif").read(1)
+        # initialize output rasters with BC boundary
+        designation = rasterio.open("rasters/dl_0.tif").read(1)
+        forest_restriction = designation.copy()
+        og_restriction = designation.copy()
+        mine_restriction = designation.copy()
 
         # loop backwards through designations
-        for hierarchy in reversed(list(set([int(s["hierarchy"]) for s in self.sources]))):
-            LOG.info("loading hierarchy n"+str(hierarchy))
-            B = rasterio.open(f"rasters/dl_{hierarchy}.tif").read(1)
+        for source in reversed(
+            list(
+                set(
+                    [
+                        (
+                            int(s["hierarchy"]),
+                            s["forest_restriction"],
+                            s["og_restriction"],
+                            s["mine_restriction"],
+                        )
+                        for s in self.sources
+                    ]
+                )
+            )
+        ):
+            # unpack the values into individual variables
+            (
+                hierarchy_val,
+                forest_restriction_val,
+                og_restriction_val,
+                mine_restriction_val,
+            ) = source
+            LOG.info("loading hierarchy n" + str(hierarchy_val))
+            B = rasterio.open(f"rasters/dl_{hierarchy_val}.tif").read(1)
             # set output raster to hierarchy value
             LOG.info("calculating")
-            A[(A >= 0) & (A != 255) & (B == hierarchy)] = hierarchy
 
-        # write final raster to disk
-        with rasterio.open(
-            "output.tif",
-            "w",
-            driver="GTiff",
-            dtype='uint8',
-            count=1,
-            width=self.raster_kwargs["width"],
-            height=self.raster_kwargs["height"],
-            crs="EPSG:3005",
-            transform=self.raster_kwargs["transform"],
-            nodata=255,
-        ) as dst:
-            dst.write(A, indexes=1)
+            # create index array pointing to cells we want to tag
+            # (in BC, and with current hierarchy number)
+            index_array = np.where(
+                (designation >= 0) & (designation != 255) & (B == hierarchy_val),
+                True,
+                False,
+            )
+
+            # tag designations and restriction types
+            designation[index_array] = hierarchy_val
+            forest_restriction[index_array] = forest_restriction_val
+            og_restriction[index_array] = og_restriction_val
+            mine_restriction[index_array] = mine_restriction_val
+
+        # define name of output tif for each array
+        out_rasters = [
+            (designation, "designatedlands"),
+            (forest_restriction, "forest_restriction"),
+            (og_restriction, "og_restriction"),
+            (mine_restriction, "mine_restriction"),
+        ]
+        # write output rasters to disk
+        Path(self.config["out_path"]).mkdir(parents=True, exist_ok=True)
+        for out_raster in out_rasters:
+            LOG.info("writing output raster %s" % out_raster[1])
+            with rasterio.open(
+                os.path.join(self.config["out_path"], out_raster[1] + ".tif"),
+                "w",
+                driver="GTiff",
+                dtype="uint8",
+                count=1,
+                width=self.raster_profile["width"],
+                height=self.raster_profile["height"],
+                crs="EPSG:3005",
+                transform=self.raster_profile["transform"],
+                nodata=255,
+            ) as dst:
+                dst.write(out_raster[0], indexes=1)
 
     def get_tiles(self, table, tile_table="tiles_250k"):
         """Return a list of all tiles intersecting supplied table
