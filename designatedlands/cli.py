@@ -72,22 +72,10 @@ def download(config_file, alias, overwrite, verbose, quiet):
 @verbose_opt
 @quiet_opt
 def preprocess(config_file, alias, overwrite, verbose, quiet):
-    """Preprocess source layers where required
-    """
+    """Create tiles layer and preprocess sources where required"""
     set_log_level(verbose, quiet)
     DL = DesignatedLands(config_file)
     DL.preprocess(alias=alias)
-
-
-@cli.command()
-@click.argument("config_file", type=click.Path(exists=True), required=False)
-@verbose_opt
-@quiet_opt
-def tile(config_file, verbose, quiet):
-    """Merge source layers into a single designatedlands table
-    """
-    set_log_level(verbose, quiet)
-    DL = DesignatedLands(config_file)
     DL.create_bc_boundary()
 
 
@@ -95,23 +83,11 @@ def tile(config_file, verbose, quiet):
 @click.argument("config_file", type=click.Path(exists=True), required=False)
 @verbose_opt
 @quiet_opt
-def tidy(config_file, verbose, quiet):
-    """Merge source layers into a single designatedlands table
-    """
+def process_vector(config_file, verbose, quiet):
+    """Create vector designation/restriction layers"""
     set_log_level(verbose, quiet)
     DL = DesignatedLands(config_file)
     DL.tidy()
-
-
-@cli.command()
-@click.argument("config_file", type=click.Path(exists=True), required=False)
-@verbose_opt
-@quiet_opt
-def restrictions(config_file, verbose, quiet):
-    """Merge source layers into a single designatedlands table
-    """
-    set_log_level(verbose, quiet)
-    DL = DesignatedLands(config_file)
     DL.restrictions()
 
 
@@ -119,12 +95,12 @@ def restrictions(config_file, verbose, quiet):
 @click.argument("config_file", type=click.Path(exists=True), required=False)
 @verbose_opt
 @quiet_opt
-def cleanup(config_file, verbose, quiet):
-    """Remove temporary tables
-    """
+def process_raster(config_file, verbose, quiet):
+    """Create raster designation/restriction layers"""
     set_log_level(verbose, quiet)
     DL = DesignatedLands(config_file)
-    DL.cleanup()
+    DL.rasterize()
+    DL.overlay_rasters()
 
 
 @cli.command()
@@ -147,30 +123,6 @@ def dump(config_file, verbose, quiet):
             table,
             geom_type="MULTIPOLYGON",
         )
-
-
-@cli.command()
-@click.argument("config_file", type=click.Path(exists=True), required=False)
-@verbose_opt
-@quiet_opt
-def rasterize(config_file, verbose, quiet):
-    """Remove temporary tables
-    """
-    set_log_level(verbose, quiet)
-    DL = DesignatedLands(config_file)
-    DL.rasterize()
-
-
-@cli.command()
-@click.argument("config_file", type=click.Path(exists=True), required=False)
-@verbose_opt
-@quiet_opt
-def overlay_rasters(config_file, verbose, quiet):
-    """Remove temporary tables
-    """
-    set_log_level(verbose, quiet)
-    DL = DesignatedLands(config_file)
-    DL.overlay_rasters()
 
 
 @cli.command()
@@ -203,6 +155,18 @@ def overlay(in_file, config_file, in_layer, dump_file, new_layer_name, verbose, 
     # dump result to file
     if dump_file:
         dump(out_layer, DL.config["out_file"], DL.config["out_format"])
+
+
+@cli.command()
+@click.argument("config_file", type=click.Path(exists=True), required=False)
+@verbose_opt
+@quiet_opt
+def cleanup(config_file, verbose, quiet):
+    """Remove temporary tables
+    """
+    set_log_level(verbose, quiet)
+    DL = DesignatedLands(config_file)
+    DL.cleanup()
 
 
 if __name__ == "__main__":

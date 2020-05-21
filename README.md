@@ -105,50 +105,54 @@ See example [`designateldands.cfg`](designatedlands.cfg) listing all configurati
 | `out_table`| name of output table to create in postgres |
 | `out_file` | Output geopackage name" |
 | `out_format` | Output format. Default GPKG (Geopackage) |
-| `db_url`| [SQLAlchemy connection URL](http://docs.sqlalchemy.org/en/latest/core/engines.html#postgresql) pointing to the postgres database
+| `db_url`| [SQLAlchemy connection URL](http://docs.sqlalchemy.org/en/latest/core/engines.html#postgresql) pointing to the postgres database (defaults to environment variable `$DATABASE_URL`)
 | `n_processes`| Input layers are broken up by tile and processed in parallel, define how many parallel processes to use. (default of -1 indicates number of cores on your machine minus one)|
 
 
 ## Usage
 
-First, configure or adapt the file `sources.csv` as required. This file defines all layers/data sources to be processed and how the script will process each layer. See [below](#sources.csv) for a full description of this file and how it defines the various data sources.
+First, configure or adapt the file `sources.csv` as required. This file defines all designation data sources to be processed and how the script will process each source. See [below](#sources.csv) for a full description of this file and how it defines the various data sources.
 
-If running a new analysis, download data sources specified as **manual downloads** in `sources.csv`.
+If running a new analysis, download data sources specified as **manual downloads** in `sources.csv` to the folder identified by the `source_data` key in the configuration.
 
-Using the `designatedlands` tool, load and process all data then dump the results to geopackage:
+Using the `designatedlands` tool, load and process all data then dump the results to .tif/geopackage:
 
 ```
 $ designatedlands download
 $ designatedlands preprocess
-$ designatedlands tidy
+$ designatedlands process_vector
+$ designatedlands process_raster
 $ designatedlands dump
 ```
 
 See the `--help` for more options:
 ```
 $ designatedlands --help
-Usage: designatedlands.py [OPTIONS] COMMAND [ARGS]...
+Usage: designatedlands [OPTIONS] COMMAND [ARGS]...
 
 Options:
   --help  Show this message and exit.
 
 Commands:
-  dump            Dump output designatedlands table to file
-  load            Download data, load to postgres
+  cleanup         Remove temporary tables
+  download        Download data, load to postgres
+  dump            Dump output tables to file
   overlay         Intersect layer with designatedlands
-  process         Create output designatedlands tables
+  preprocess      Create tiles layer and preprocess sources where required
+  process-raster  Create raster designation/restriction layers
+  process-vector  Create vector designation/restriction layers
 ```
 
 For help regarding an individual command:
 ```
-$ designatedlands load --help
-Usage: designatedlands load [OPTIONS] [CONFIG_FILE]
+$ designatedlands download --help
+Usage: designatedlands download [OPTIONS] [CONFIG_FILE]
 
   Download data, load to postgres
 
 Options:
   -a, --alias TEXT  The 'alias' key for the source of interest
-  --force_download  Force fresh download
+  --overwrite       Overwrite any existing output, force fresh download
   -v, --verbose     Increase verbosity.
   -q, --quiet       Decrease verbosity.
   --help            Show this message and exit.
