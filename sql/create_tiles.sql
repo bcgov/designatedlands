@@ -19,14 +19,14 @@
 --    - 250m buffer at northern border (60deg)
 
 DROP TABLE IF EXISTS designatedlands.tiles;
-CREATE TABLE tiles (tile_id serial primary key, map_tile text, geom geometry);
+CREATE TABLE designatedlands.tiles (tile_id serial primary key, map_tile text, geom geometry);
 
 CREATE INDEX ON designatedlands.tiles (map_tile);
-CREATE INDEX tiles_gidx ON tiles USING GIST (geom) ;
+CREATE INDEX tiles_gidx ON designatedlands.tiles USING GIST (geom) ;
 
 -- add 20k tiles
 INSERT INTO designatedlands.tiles (map_tile, geom)
-SELECT map_tile, geom FROM tiles_20k;
+SELECT map_tile, geom FROM designatedlands.tiles_20k;
 
 -- Add 250k tiles for marine areas
 -- (except for SSOG to avoid confusion with USA border)
@@ -83,7 +83,7 @@ WHERE (map_tile LIKE '114O%%'
    OR map_tile LIKE '094O%%'
    OR map_tile LIKE '094P%%'))
 
-INSERT INTO tiles (map_tile, geom)
+INSERT INTO designatedlands.tiles (map_tile, geom)
 SELECT
   '0000000' as map_tile,
   ST_Difference(a.geom, b.geom) as geom

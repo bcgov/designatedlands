@@ -17,6 +17,7 @@ import sys
 import click
 import fiona
 from cligj import verbose_opt, quiet_opt
+from pathlib import Path
 
 import pgdata
 
@@ -106,6 +107,18 @@ def tidy(config_file, verbose, quiet):
 @click.argument("config_file", type=click.Path(exists=True), required=False)
 @verbose_opt
 @quiet_opt
+def restrictions(config_file, verbose, quiet):
+    """Merge source layers into a single designatedlands table
+    """
+    set_log_level(verbose, quiet)
+    DL = DesignatedLands(config_file)
+    DL.restrictions()
+
+
+@cli.command()
+@click.argument("config_file", type=click.Path(exists=True), required=False)
+@verbose_opt
+@quiet_opt
 def cleanup(config_file, verbose, quiet):
     """Remove temporary tables
     """
@@ -115,21 +128,25 @@ def cleanup(config_file, verbose, quiet):
 
 
 @cli.command()
-@click.argument("table")
 @click.argument("config_file", type=click.Path(exists=True), required=False)
 @verbose_opt
 @quiet_opt
-def dump(table, config_file, verbose, quiet):
-    """Dump specified table to file"""
+def dump(config_file, verbose, quiet):
+    """Dump output tables to file"""
     set_log_level(verbose, quiet)
     DL = DesignatedLands(config_file)
-    DL.db.pg2ogr(
-        "SELECT * FROM designatedlands.{}".format(table),
-        "GPKG",
-        DL.config["out_file"],
-        DL.config["out_table"],
-        geom_type="MULTIPOLYGON",
-    )
+    # overwrite output gpkg if it exists
+    out_path = Path(DL.config["out_path"])/"designatedlands.gpkg"
+    if out_path.exists():
+        out_path.unlink()
+    for table in ["designatedlands", "forest_restriction", "og_restriction", "mine_restriction"]:
+        DL.db.pg2ogr(
+            f"SELECT * FROM designatedlands.{table}",
+            "GPKG",
+            str(out_path),
+            table,
+            geom_type="MULTIPOLYGON",
+        )
 
 
 @cli.command()
@@ -186,109 +203,6 @@ def overlay(in_file, config_file, in_layer, dump_file, new_layer_name, verbose, 
     # dump result to file
     if dump_file:
         dump(out_layer, DL.config["out_file"], DL.config["out_format"])
-
-
-"""
-#@click.option("--resume", "-r", help="hierarchy number at which to resume processing")
-
-    main.clean_and_agg_sources(db, config["source_csv"], force=force_preprocess)
-
-    # parse the list of tiles
-    tilelist = main.parse_tiles(db, tiles)
-    # create target tables if not resuming from a bailed process
-    if not resume:
-        # create output tables
-        db.execute(
-            db.build_query(
-                db.queries["create_outputs_prelim"], {"table": config["out_table"]}
-            )
-        )
-    # filter sources - use only non-exlcuded sources with hierarchy > 0
-    sources = [
-        s
-        for s in util.read_csv(config["source_csv"])
-        if s["hierarchy"] != 0 and s["exclude"] != "T"
-    ]
-    # To create output table with overlaps, combine all source data
-    # (tiles argument does not apply, we could build a tile query string but
-    # it seems unnecessary)
-    for source in sources:
-        logger.info(
-            "Inserting %s into preliminary output overlap table" % source["tiled_table"]
-        )
-        sql = db.build_query(
-            db.queries["populate_output_overlaps"],
-            {
-                "in_table": source["tiled_table"],
-                "out_table": config["out_table"] + "_overlaps_prelim",
-            },
-        )
-        db.execute(sql)
-    # To create output table with no overlaps, more processing is required
-    # In case of bailing during tests/development, `resume` option is available
-    # to enable resumption of processing at specified hierarchy number
-    if resume:
-        p_sources = [s for s in sources if int(s["hierarchy"]) >= int(resume)]
-    else:
-        p_sources = sources
-    # The tiles layer will fill in gaps between sources (so all BC is included
-    # in output). To do this, first match schema of tiles to other sources
-    db.execute("ALTER TABLE tiles ADD COLUMN IF NOT EXISTS id integer")
-    db.execute("UPDATE tiles SET id = tile_id")
-    db.execute("ALTER TABLE tiles ADD COLUMN IF NOT EXISTS designation text")
-    # Next, add simple tiles layer definition to sources list
-    p_sources.append({"cleaned_table": "tiles", "category": None})
-    # iterate through all sources
-    for source in p_sources:
-        sql = db.build_query(
-            db.queries["populate_output"],
-            {
-                "in_table": source["cleaned_table"],
-                "out_table": config["out_table"] + "_prelim",
-            },
-        )
-        # determine which specified tiles are present in source layer
-        src_tiles = set(
-            main.get_tiles(db, source["cleaned_table"], tile_table="tiles")
-        )
-        if tilelist:
-            tiles = set(tilelist) & src_tiles
-        else:
-            tiles = src_tiles
-        if tiles:
-            logger.info(
-                "Inserting %s into preliminary output table" % source["cleaned_table"]
-            )
-            # for testing, run only one process and report on tile
-            if config["n_processes"] == 1:
-                for tile in tiles:
-                    util.log(tile)
-                    db.execute(sql, (tile + "%",) * 2)
-            else:
-                func = partial(main.parallel_tiled, db.url, sql, n_subs=2)
-                pool = multiprocessing.Pool(processes=config["n_processes"])
-                pool.map(func, tiles)
-                pool.close()
-                pool.join()
-        else:
-            logger.info("No tiles to process")
-    # create marine-terrestrial layer
-    if "bc_boundary" not in db.tables:
-        main.create_bc_boundary(db, config["n_processes"])
-
-    # overlay output tables with marine-terrestrial definition
-    for table in [config["out_table"], config["out_table"] + "_overlaps"]:
-        logger.info("Cutting %s with marine-terrestrial definition" % table)
-        main.intersect(
-            db, table + "_prelim", "bc_boundary", table, config["n_processes"], tiles
-        )
-
-    util.tidy_designations(db, sources, "cleaned_table", config["out_table"])
-    util.tidy_designations(
-        db, sources, "tiled_table", config["out_table"] + "_overlaps"
-    )
-
-"""
 
 
 if __name__ == "__main__":

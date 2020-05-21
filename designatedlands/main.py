@@ -404,15 +404,19 @@ class DesignatedLands(object):
 
     def create_bc_boundary(self):
         """
-        Create a comprehensive land-marine layer by combining three sources.
-        (Note that specificly named source layers are hard coded and must exist)
+        Create a comprehensive and tiled land-marine layer.
+        Combine these source layers (which must exist)
 
+        - tiles_20k
+        - tiles_250k
         - bc_boundary_land (BC boundary layer from GeoBC, does not include marine)
         - bc_abms (BC Boundary, ABMS)
         - marine_ecosections (BC Marine Ecosections)
         """
-
         db = self.db
+        # create tiles table
+        db.execute(db.queries["create_tiles"])
+
         # initialize empty land/marine definition table
         db.execute(
             """
@@ -455,6 +459,7 @@ class DesignatedLands(object):
                 SELECT ST_Subdivide(geom) as geom FROM {source};
                 CREATE INDEX ON {source}_temp USING GIST (geom);"""
             )
+
             # tile
             db[f"{source}_tiled"].drop()
             lookup = {
@@ -462,13 +467,20 @@ class DesignatedLands(object):
                 "out_table": f"{source}_tiled",
                 "designation": source.split(".")[1],
             }
-            db.execute(db.build_query(db.queries["prep1_merge_tile_b"], lookup))
+            db.execute(db.build_query(db.queries["tile"], lookup))
             db[f"{source}_temp"].drop()
+
             # combine the boundary layers into new table bc_boundary
-            sql = db.build_query(
-                db.queries["populate_output"],
-                {"in_table": f"{source}_tiled", "out_table": "bc_boundary"},
-            )
+            sql = self.db.build_query(
+                    self.db.queries["insert_difference"],
+                    {
+                        "in_table": f"{source}_tiled",
+                        "out_table": "bc_boundary",
+                        "columns": "designation",
+                        "query": "",
+                        "source_pk": "id"
+                    },
+                )
             tiles = self.get_tiles(f"{source}_tiled")
             func = partial(util.parallel_tiled, db.url, sql, n_subs=2)
             pool = multiprocessing.Pool(processes=self.config["n_processes"])
@@ -482,6 +494,10 @@ class DesignatedLands(object):
         )
         # add index
         db.execute("CREATE INDEX ON designatedlands.bc_boundary USING GIST (geom)")
+
+        # add empty restriction columns
+        for restriction in ["forest", "og", "mine"]:
+            db.execute(f"ALTER TABLE designatedlands.bc_boundary ADD COLUMN {restriction}_restriction integer;")
 
     def tidy(self):
         """Create a single designatedlands table
@@ -533,6 +549,64 @@ class DesignatedLands(object):
 
         # index geom
         self.db[out_table].create_index_geom()
+
+    def restrictions(self):
+        """Create individual restriction layers (vector)
+        """
+        for restriction in "forest", "og", "mine":
+            # create table
+            sql = f"""
+                DROP TABLE IF EXISTS designatedlands.{restriction}_restriction;
+                CREATE TABLE designatedlands.{restriction}_restriction (
+                  {restriction}_restriction_id SERIAL PRIMARY KEY,
+                  {restriction}_restriction integer,
+                  map_tile text,
+                  geom geometry
+                );
+                CREATE INDEX ON designatedlands.{restriction}_restriction
+                USING GIST (geom);
+                """
+            self.db.execute(sql)
+            # load in decreasing order of restriction level (4-1)
+            # (we are loading the difference at each step, so lower levels do
+            # not overwrite higher levels)
+            for level in [4, 3, 2, 1]:
+                LOG.info(f"Inserting restriction level {level} into table {restriction}_restriction")
+                sql = self.db.build_query(
+                    self.db.queries["insert_difference"],
+                    {
+                        "in_table": "designatedlands.designatedlands",
+                        "out_table": f"designatedlands.{restriction}_restriction",
+                        "columns": f"{restriction}_restriction",
+                        "query": f"AND {restriction}_restriction = {level}",
+                        "source_pk": "designatedlands_id"
+                    },
+                )
+                tiles = self.get_tiles("designatedlands.designatedlands")
+                func = partial(util.parallel_tiled, self.db.url, sql, n_subs=2)
+                pool = multiprocessing.Pool(processes=self.config["n_processes"])
+                pool.map(func, tiles)
+                pool.close()
+                pool.join()
+
+            # and fill in the gaps with 0 restriction
+            LOG.info(f"Inserting areas with no restriction into table {restriction}_restriction")
+            sql = self.db.build_query(
+                self.db.queries["insert_difference"],
+                {
+                    "in_table": "designatedlands.bc_boundary",
+                    "out_table": f"designatedlands.{restriction}_restriction",
+                    "columns": f"{restriction}_restriction",
+                    "query": "bc_boundary = 'bc_boundary_land'",
+                    "source_pk": "bc_boundary_id"
+                },
+            )
+            tiles = self.get_tiles("designatedlands.designatedlands")
+            func = partial(util.parallel_tiled, self.db.url, sql, n_subs=2)
+            pool = multiprocessing.Pool(processes=self.config["n_processes"])
+            pool.map(func, tiles)
+            pool.close()
+            pool.join()
 
     def rasterize(self):
         """

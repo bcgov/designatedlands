@@ -13,9 +13,8 @@
 
 -- ----------------------------------------------------------------------------------------------------
 
---   - tile/merge/repair data in src_table
---   - do not retain source id / source name
-
+--   Create output table and insert merge/repaired data in src_table, tiling the output
+--   Note that the only attribute retained is 'designation'
 
 -- create empty table with new auto-indexed id column
 CREATE TABLE IF NOT EXISTS $out_table (
@@ -25,7 +24,7 @@ CREATE TABLE IF NOT EXISTS $out_table (
      geom geometry
 );
 
--- insert cleaned data
+-- insert cleaned and tiled data
 INSERT INTO $out_table (designation, map_tile, geom)
   SELECT designation, map_tile, geom
   FROM (SELECT
@@ -50,7 +49,7 @@ INSERT INTO $out_table (designation, map_tile, geom)
               )
               )).geom) as geom
         FROM $src_table a
-        INNER JOIN tiles b ON ST_Intersects(a.geom, b.geom)
+        INNER JOIN designatedlands.tiles b ON ST_Intersects(a.geom, b.geom)
         GROUP BY designation, map_tile) AS foo;
 
 -- index for speed

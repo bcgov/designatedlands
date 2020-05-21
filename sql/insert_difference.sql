@@ -13,18 +13,19 @@
 
 -- ----------------------------------------------------------------------------------------------------
 
-INSERT INTO $out_table (designation, map_tile, geom)
+INSERT INTO $out_table ($columns, map_tile, geom)
 
 WITH
 
 src_clip AS
 (SELECT
-   id,
-   designation,
+   $source_pk as id,
+   $columns,
    map_tile,
    geom
  FROM $in_table
- WHERE map_tile LIKE %s),
+ WHERE map_tile LIKE %s
+ $query),
 
 dest_clip AS
 (SELECT * FROM $out_table WHERE map_tile LIKE %s),
@@ -32,7 +33,6 @@ dest_clip AS
 all_intersects AS
 (SELECT
   i.id AS input_id,
-  i.designation AS input_designation,
   ST_Safe_Repair(ST_SnapToGrid(o.geom, .001)) as output_geom
 FROM src_clip AS i
 INNER JOIN dest_clip AS o
@@ -55,13 +55,13 @@ GROUP BY a.input_id),
 difference AS (
 SELECT
   id,
-  designation,
+  $columns,
   map_tile,
   st_multi(st_union(geom)) AS geom
 FROM
     (SELECT
        i.id as id,
-       i.designation as designation,
+       $columns,
        i.map_tile as map_tile,
        (ST_Dump(COALESCE(
           ST_Safe_Difference(i.geom, u.geom)
@@ -73,15 +73,14 @@ FROM
      ) AS foo
 -- discard very small differences
 WHERE st_area(geom) > 10
-GROUP BY foo.id, foo.designation, foo.map_tile
+GROUP BY foo.id, $columns, foo.map_tile
 ),
-
 
 -- finally, non-intersecting records
 non_intersections AS
 (SELECT
   i.id,
-  i.designation,
+  $columns,
   i.map_tile,
   ST_Multi(i.geom) as geom
 FROM src_clip i
@@ -89,15 +88,39 @@ LEFT JOIN all_intersects a ON i.id = a.input_id
 WHERE a.input_id IS null)
 
 
--- combine inputs, attempt to clean results of st_difference, make sure we aren't inserting point or line intersections
-SELECT d.designation, d.map_tile,
---ST_Safe_Repair(ST_Snap((ST_Dump(ST_Safe_Repair(d.geom))).geom, t.geom, .01)) as geom
-ST_Safe_Repair(ST_Snap((ST_Dump(ST_Safe_Repair(st_buffer(st_buffer(d.geom, -0.001), .001)))).geom, t.geom, .01)) as geom
+-- Combine inputs (difference and non-intersections)
+-- Attempt to clean results of st_difference by:
+--   - small in/out buffer
+--   - snap to tile boundary to try and line up tile edges that have been shifted
+--   - make sure we aren't inserting point or line intersections
+SELECT
+  $columns,
+  d.map_tile,
+  ST_Safe_Repair(
+    ST_Snap(
+      (ST_Dump(
+        ST_Safe_Repair(
+          ST_Buffer(
+            ST_Buffer(d.geom, -0.001),
+            .001)
+          )
+        )).geom,
+      t.geom, .01
+    )
+  ) as geom
 FROM difference d
 INNER JOIN tiles t ON d.map_tile = t.map_tile
 WHERE GeometryType(d.geom) = 'MULTIPOLYGON'
 UNION ALL
-SELECT ni.designation, ni.map_tile,
-ST_Safe_Repair(ST_Snap((ST_Dump(ST_Safe_Repair(ni.geom))).geom, t.geom, .01)) as geom
+SELECT
+  $columns,
+  ni.map_tile,
+  ST_Safe_Repair(
+    ST_Snap(
+      (ST_Dump(
+        ST_Safe_Repair(ni.geom)
+        )).geom,
+      t.geom, .01)
+  ) as geom
 FROM non_intersections ni
 INNER JOIN tiles t ON ni.map_tile = t.map_tile
