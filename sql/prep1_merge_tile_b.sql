@@ -29,7 +29,7 @@ CREATE TABLE IF NOT EXISTS $out_table (
 INSERT INTO $out_table (designation, map_tile, geom)
   SELECT designation, map_tile, geom
   FROM (SELECT
-          '$out_table'::TEXT AS designation,
+          '$designation'::TEXT AS designation,
           b.map_tile,
           -- make sure the output is valid
           ST_Safe_Repair(
@@ -54,5 +54,5 @@ INSERT INTO $out_table (designation, map_tile, geom)
         GROUP BY designation, map_tile) AS foo;
 
 -- index for speed
-CREATE INDEX $out_table_gix ON $out_table USING GIST (geom);
-CREATE INDEX $out_table_tileix ON $out_table (map_tile text_pattern_ops);
+CREATE INDEX ON $out_table USING GIST (geom);
+CREATE INDEX ON $out_table (map_tile text_pattern_ops);

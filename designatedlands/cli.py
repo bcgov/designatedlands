@@ -82,6 +82,18 @@ def preprocess(config_file, alias, overwrite, verbose, quiet):
 @click.argument("config_file", type=click.Path(exists=True), required=False)
 @verbose_opt
 @quiet_opt
+def tile(config_file, verbose, quiet):
+    """Merge source layers into a single designatedlands table
+    """
+    set_log_level(verbose, quiet)
+    DL = DesignatedLands(config_file)
+    DL.create_bc_boundary()
+
+
+@cli.command()
+@click.argument("config_file", type=click.Path(exists=True), required=False)
+@verbose_opt
+@quiet_opt
 def tidy(config_file, verbose, quiet):
     """Merge source layers into a single designatedlands table
     """

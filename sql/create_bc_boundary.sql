@@ -15,9 +15,9 @@
 
 -- create empty prelim output table
 
-DROP TABLE IF EXISTS bc_boundary;
+DROP TABLE IF EXISTS designatedlands.bc_boundary;
 
-CREATE TABLE bc_boundary (
+CREATE TABLE designatedlands.bc_boundary (
      bc_boundary_id serial PRIMARY KEY,
      designation text,
      map_tile text,
@@ -25,6 +25,5 @@ CREATE TABLE bc_boundary (
 );
 
 -- index for speed
-CREATE INDEX bc_boundary_gix ON bc_boundary USING GIST (geom);
-CREATE INDEX bc_boundary_catix ON bc_boundary (designation);
-CREATE INDEX bc_boundary_tileix ON bc_boundary (map_tile text_pattern_ops);
+CREATE INDEX ON designatedlands.bc_boundary USING GIST (geom);
+CREATE INDEX ON designatedlands.bc_boundary (map_tile text_pattern_ops);

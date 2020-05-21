@@ -26,9 +26,7 @@ from pathlib import Path
 import click
 from geoalchemy2 import Geometry
 import rasterio
-from rasterio import features
 import pandas as pd
-import geopandas as gpd
 import numpy as np
 from sqlalchemy.schema import Column
 from sqlalchemy.types import Integer, UnicodeText
@@ -248,7 +246,7 @@ class DesignatedLands(object):
         subprocess.run(cmd)
 
     def validate_sources(self):
-        """Make sure hierarchy is sequential
+        """ Do some very basic validation of designations csv
         """
         # check that hierarchy numbers start at 1 and end at n designations
         h = list(set(int(d["hierarchy"]) for d in self.sources if d["exclude"] != "T"))
@@ -281,7 +279,8 @@ class DesignatedLands(object):
                 )
 
     def download(self, alias=None, overwrite=False):
-        """Download source data"""
+        """Download source data
+        """
 
         sources = self.sources_supporting + self.sources
 
@@ -389,74 +388,126 @@ class DesignatedLands(object):
                     )
                 LOG.info("Preprocessing " + source["src"])
                 self.clip(
-                    source["src"], source["preprocess_args"], source["preprc"],
+                    self.db_url,
+                    source["src"],
+                    source["preprocess_args"],
+                    source["preprc"],
                 )
             elif source["preprocess_operation"] == "union":
                 LOG.info("Preprocessing " + source["src"])
                 self.union(
-                    source["src"], source["preprocess_args"], source["preprc"],
+                    self.db_url,
+                    source["src"],
+                    source["preprocess_args"],
+                    source["preprc"],
                 )
 
-    def clip(self, in_table, clip_table, out_table):
-        """Clip geometry of in_table by clip_table, writing output to out_table
+    def create_bc_boundary(self):
         """
-        columns = ["a." + c for c in self.db[in_table].columns if c != "geom"]
-        sql = """CREATE TABLE {temp} AS
-                 SELECT
-                   {columns},
-                   CASE
-                     WHEN ST_CoveredBy(a.geom, b.geom) THEN a.geom
-                     ELSE ST_Multi(
-                            ST_CollectionExtract(
-                              ST_Intersection(a.geom,b.geom), 3)) END AS geom
-                 FROM {in_table} AS a
-                 INNER JOIN {clip_table} AS b
-                 ON ST_Intersects(a.geom, b.geom)
-              """.format(
-            temp=out_table,
-            columns=", ".join(columns),
-            in_table=in_table,
-            clip_table=clip_table,
-        )
-        self.db.execute(sql)
+        Create a comprehensive land-marine layer by combining three sources.
+        (Note that specificly named source layers are hard coded and must exist)
 
-    def union(self, in_table, columns, out_table):
-        """Union/merge overlapping records with equivalent values for provided columns
+        - bc_boundary_land (BC boundary layer from GeoBC, does not include marine)
+        - bc_abms (BC Boundary, ABMS)
+        - marine_ecosections (BC Marine Ecosections)
         """
-        sql = """CREATE TABLE {temp} AS
-                 SELECT
-                   {columns},
-                   (ST_Dump(ST_Union(geom))).geom as geom
-                 FROM {in_table}
-                 GROUP BY {columns}
-              """.format(
-            temp=out_table, columns=columns, in_table=in_table
+
+        db = self.db
+        # initialize empty land/marine definition table
+        db.execute(
+            """
+            DROP TABLE IF EXISTS designatedlands.bc_boundary;
+            CREATE TABLE designatedlands.bc_boundary (
+                 bc_boundary_id serial PRIMARY KEY,
+                 designation text,
+                 map_tile text,
+                 geom geometry
+            );
+            """
         )
-        self.db.execute(sql)
+
+        # Prep boundary sources
+        # First, combine ABMS boundary and marine ecosections
+        db["designatedlands.bc_boundary_marine"].drop()
+        db.execute(
+            """
+            CREATE TABLE designatedlands.bc_boundary_marine AS
+                      SELECT
+                        'bc_boundary_marine' as designation,
+                         ST_Union(geom) as geom FROM
+                          (SELECT st_union(geom) as geom
+                           FROM designatedlands.bc_abms
+                           UNION ALL
+                           SELECT st_union(geom) as geom
+                           FROM designatedlands.marine_ecosections) as foo
+                       GROUP BY designation"""
+        )
+        for source in [
+            "designatedlands.bc_boundary_land",
+            "designatedlands.bc_boundary_marine",
+        ]:
+            LOG.info("Prepping and inserting into bc_boundary: %s" % source)
+            # subdivide before attempting to tile
+            db[f"{source}_temp"].drop()
+            db.execute(
+                f"""
+                CREATE UNLOGGED TABLE {source}_temp AS
+                SELECT ST_Subdivide(geom) as geom FROM {source};
+                CREATE INDEX ON {source}_temp USING GIST (geom);"""
+            )
+            # tile
+            db[f"{source}_tiled"].drop()
+            lookup = {
+                "src_table": f"{source}_temp",
+                "out_table": f"{source}_tiled",
+                "designation": source.split(".")[1],
+            }
+            db.execute(db.build_query(db.queries["prep1_merge_tile_b"], lookup))
+            db[f"{source}_temp"].drop()
+            # combine the boundary layers into new table bc_boundary
+            sql = db.build_query(
+                db.queries["populate_output"],
+                {"in_table": f"{source}_tiled", "out_table": "bc_boundary"},
+            )
+            tiles = self.get_tiles(f"{source}_tiled")
+            func = partial(util.parallel_tiled, db.url, sql, n_subs=2)
+            pool = multiprocessing.Pool(processes=self.config["n_processes"])
+            pool.map(func, tiles)
+            pool.close()
+            pool.join()
+        # rename the 'designation' column
+        db.execute(
+            """ALTER TABLE designatedlands.bc_boundary
+                      RENAME COLUMN designation TO bc_boundary"""
+        )
+        # add index
+        db.execute("CREATE INDEX ON designatedlands.bc_boundary USING GIST (geom)")
 
     def tidy(self):
-        """Create a single designatedlands table, holding all designations
+        """Create a single designatedlands table
+        - holds all designations
+        - terrestrial only
+        - overlaps included
         """
 
         # create output table
         out_table = "designatedlands.designatedlands"
         self.db[out_table].drop()
         LOG.info("Creating: {}".format(out_table))
-        sql = """
+        sql = f"""
         CREATE TABLE {out_table} (
           designatedlands_id serial PRIMARY KEY,
           hierarchy integer,
           designation text,
           source_id text,
           source_name text,
-          forest_restriction text,
-          og_restriction text,
-          mine_restriction text,
+          forest_restriction integer,
+          og_restriction integer,
+          mine_restriction integer,
+          map_tile text,
           geom geometry
         );
-        """.format(
-            out_table=out_table
-        )
+        """
         self.db.execute(sql)
 
         # insert data
@@ -465,21 +516,17 @@ class DesignatedLands(object):
             if source["preprc"] in self.db.tables:
                 input_table = source["preprc"]
 
-            LOG.info(
-                "Inserting data from {in_table} into {out_table}".format(
-                    in_table=input_table, out_table=out_table
-                )
-            )
+            LOG.info(f"Inserting data from {input_table} into {out_table}")
             lookup = {
                 "out_table": out_table,
                 "src_table": input_table,
-                "hierarchy": source["hierarchy"],
+                "hierarchy": str(int(source["hierarchy"])),
                 "desig_type": source["designation"],
                 "source_id_col": source["source_id_col"],
                 "source_name_col": source["source_name_col"],
-                "forest_restriction": source["forest_restriction"],
-                "og_restriction": source["og_restriction"],
-                "mine_restriction": source["mine_restriction"],
+                "forest_restriction": str(source["forest_restriction"]),
+                "og_restriction": str(source["og_restriction"]),
+                "mine_restriction": str(source["mine_restriction"]),
             }
             sql = self.db.build_query(self.db.queries["merge"], lookup)
             self.db.execute(sql)
@@ -553,7 +600,7 @@ class DesignatedLands(object):
         """Overlay raster designations to remove overlaps
         """
         LOG.info("Overlaying rasters")
-
+        LOG.info("- initializing output arrays")
         # initialize output rasters with BC boundary
         designation = rasterio.open("rasters/dl_0.tif").read(1)
         forest_restriction = designation.copy()
@@ -561,7 +608,7 @@ class DesignatedLands(object):
         mine_restriction = designation.copy()
 
         # loop backwards through designations
-        for source in reversed(
+        for source in sorted(
             list(
                 set(
                     [
@@ -574,7 +621,8 @@ class DesignatedLands(object):
                         for s in self.sources
                     ]
                 )
-            )
+            ),
+            key=lambda x: (-x[0]),
         ):
             # unpack the values into individual variables
             (
@@ -583,19 +631,19 @@ class DesignatedLands(object):
                 og_restriction_val,
                 mine_restriction_val,
             ) = source
-            LOG.info("loading hierarchy n" + str(hierarchy_val))
+            LOG.info("- loading hierarchy n" + str(hierarchy_val))
             B = rasterio.open(f"rasters/dl_{hierarchy_val}.tif").read(1)
-            # set output raster to hierarchy value
-            LOG.info("calculating")
 
             # create index array pointing to cells we want to tag
             # (in BC, and with current hierarchy number)
+            LOG.info("- creating index array")
             index_array = np.where(
                 (designation >= 0) & (designation != 255) & (B == hierarchy_val),
                 True,
                 False,
             )
 
+            LOG.info("- assigning output values")
             # tag designations and restriction types
             designation[index_array] = hierarchy_val
             forest_restriction[index_array] = forest_restriction_val
@@ -612,7 +660,7 @@ class DesignatedLands(object):
         # write output rasters to disk
         Path(self.config["out_path"]).mkdir(parents=True, exist_ok=True)
         for out_raster in out_rasters:
-            LOG.info("writing output raster %s" % out_raster[1])
+            LOG.info("- writing output raster %s" % out_raster[1])
             with rasterio.open(
                 os.path.join(self.config["out_path"], out_raster[1] + ".tif"),
                 "w",

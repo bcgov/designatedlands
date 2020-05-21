@@ -32,6 +32,40 @@ CHUNK_SIZE = 1024
 LOG = logging.getLogger(__name__)
 
 
+def clip(db_url, in_table, clip_table, out_table):
+    """Clip geometry of in_table by clip_table, writing output to out_table
+    """
+    db = pgdata.connect(db_url)
+    columns = ", ".join(["a." + c for c in db[in_table].columns if c != "geom"])
+    sql = f"""CREATE TABLE {out_table} AS
+             SELECT
+               {columns},
+               CASE
+                 WHEN ST_CoveredBy(a.geom, b.geom) THEN a.geom
+                 ELSE ST_Multi(
+                        ST_CollectionExtract(
+                          ST_Intersection(a.geom,b.geom), 3)) END AS geom
+             FROM {in_table} AS a
+             INNER JOIN {clip_table} AS b
+             ON ST_Intersects(a.geom, b.geom)
+          """
+    db.execute(sql)
+
+
+def union(db_url, in_table, columns, out_table):
+    """Union/merge overlapping records with equivalent values for provided columns
+    """
+    db = pgdata.connect(db_url)
+    sql = f"""CREATE TABLE {out_table} AS
+             SELECT
+               {columns},
+               (ST_Dump(ST_Union(geom))).geom as geom
+             FROM {in_table}
+             GROUP BY {columns}
+          """
+    db.execute(sql)
+
+
 def parallel_tiled(db_url, sql, tile, n_subs=1):
     """
     Create a connection and execute query for specified tile

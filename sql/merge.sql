@@ -27,17 +27,19 @@ INSERT INTO $out_table (
   forest_restriction,
   og_restriction,
   mine_restriction,
+  map_tile,
   geom
 )
 
 SELECT
   $hierarchy AS hierarchy,
   '$desig_type'::TEXT AS designation,
-  $source_id_col AS designation_id,
-  $source_name_col AS designation_name,
-  '$forest_restriction'::TEXT as forest_restriction,
-  '$og_restriction'::TEXT as og_restriction,
-  '$mine_restriction'::TEXT as mine_restriction,
+  a.$source_id_col AS designation_id,
+  a.$source_name_col AS designation_name,
+  $forest_restriction as forest_restriction,
+  $og_restriction as og_restriction,
+  $mine_restriction as mine_restriction,
+  b.map_tile,
   -- make sure the output is valid
   ST_Safe_Repair(
   -- dump
@@ -45,9 +47,22 @@ SELECT
   -- merge records with the same name and id
        ST_Union(
   -- force to multipart just to make sure everthing is the same
-         ST_Multi(geom)
+         ST_Multi(
+  -- polygons only
+            ST_CollectionExtract(
+  -- intersect with tiles on land
+                  CASE
+                    WHEN ST_CoveredBy(a.geom, b.geom) THEN a.geom
+                    ELSE ST_Safe_Intersection(a.geom, b.geom)
+                  END
+                , 3)
+
+          )
       )
       )).geom) as geom
-FROM $src_table
-GROUP BY designation, designation_id, designation_name
+FROM $src_table a
+INNER JOIN designatedlands.bc_boundary b
+ON ST_Intersects(a.geom, b.geom)
+WHERE b.bc_boundary = 'bc_boundary_land'
+GROUP BY designation, designation_id, designation_name, map_tile
 ;
