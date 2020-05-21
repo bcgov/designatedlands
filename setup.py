@@ -26,7 +26,8 @@ setup(
         "Intended Audience :: Science/Research",
         "License :: OSI Approved :: Apache",
         "Operating System :: OS Independent",
-        "Programming Language :: Python :: 3.6",
+        "Programming Language :: Python :: 3.7",
+        "Programming Language :: Python :: 3.8",
     ],
     keywords='"British Columbia" conservation designated lands',
     author=u"Simon Norris",
@@ -36,6 +37,7 @@ setup(
     packages=find_packages(exclude=["ez_setup", "examples", "tests"]),
     include_package_data=True,
     zip_safe=False,
+    python_requires='>=3.7',
     install_requires=read("requirements.txt").splitlines(),
     extras_require={"test": ["pytest", "coverage"]},
     entry_points="""
