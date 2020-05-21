@@ -101,11 +101,11 @@ See example [`designateldands.cfg`](designatedlands.cfg) listing all configurati
 | KEY       | VALUE                                            |
 |-----------|--------------------------------------------------|
 | `source_data`| path to folder that holds downloaded datasets |
-| `source_csv`| path to file that holds all data source definitions |
-| `out_table`| name of output table to create in postgres |
-| `out_file` | Output geopackage name" |
-| `out_format` | Output format. Default GPKG (Geopackage) |
+| `sources_designations`| path to csv file holding designation data source definitions |
+| `sources_supporting`| path to csv file holding supporting data source definitions |
+| `out_path`| path to write output .gpkg and tiffs |
 | `db_url`| [SQLAlchemy connection URL](http://docs.sqlalchemy.org/en/latest/core/engines.html#postgresql) pointing to the postgres database (defaults to environment variable `$DATABASE_URL`)
+| `resolution`| resolution of output geotiff rasters (m) |
 | `n_processes`| Input layers are broken up by tile and processed in parallel, define how many parallel processes to use. (default of -1 indicates number of cores on your machine minus one)|
 
 
@@ -190,7 +190,7 @@ $ designatedlands overlay \
 
 ### sources.csv
 
-The file `sources.csv` defines all source layers and how they are processed. Edit this table to customize the analysis. Note that order of the rows is not important, the script will sort the rows by the **hierarchy** column. Columns are as follows:
+The files `sources_designations.csv` and `sources_supporting.csv` define all source layers and how they are processed. Edit these tables to customize the analysis.  Columns are noted below. All columns are present in `sources_designations.csv`, designation/hierarchy/restriction columns are not included in `sources_supporting.csv` but the remaining column definitions are identical. Note that order of rows in the files is not important, order your designations by populating the **hierarchy** column with integer values. Do not include a hierarchy integer for designations that are to be excluded (`exclude = T`)
 
 | COLUMN                 | DESCRIPTION                                                                                                                                                                            |
 |------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
@@ -198,10 +198,12 @@ The file `sources.csv` defines all source layers and how they are processed. Edi
 | **exclude**              | A value of `T` will exclude the source from all operations |
 | **manual_download**        | A value of `T` indicates that a direct download url is not available for the data. Download these sources manually to the downloads folder and ensure that value given for **file_in_url** matches the name of the file in the download folder                                                            |
 | **name**                   | Full name of the designated land category                                                                                                                                                |
-| **alias**                  | A unique underscore separated value used for coding the various designated categories (eg `park_provincial`)                                                                                                |
-| **designation_id_col**     | The column in the source data that defines the unique ID for each feature                                                                                                              |
-| **designation_name_col**   | The column in the source data that defines the name for each feature                                                                                                                   |
-| **category**                 | A number prefixed code defining the broader designated class to which the layer belongs. Leave blank for non designated lands sources (tiling, boundary or preprocessing layers)      |
+| **designation**                  | A unique underscore separated value used for coding the various designated categories (eg `park_provincial`)                                                                                                |
+| **source_id_col**     | The column in the source data that defines the unique ID for each feature                                                                                                              |
+| **source_name_col**   | The column in the source data that defines the name for each feature                                                                                                                   |
+| **forest_restriction** | Level of restriction for the designation, forestry related activities (`Full`, `High`, `Medium`, `Low`, `None`)     |
+| **og_restriction** | Level of restriction for the designation, oil and gas related activities (`Full`, `High`, `Medium`, `Low`, `None`)    |
+| **mine_restriction** | Level of restriction for the designation, mine related activities (`Full`, `High`, `Medium`, `Low`, `None`)     |
 | **url**                    | Download url for the data source                                                                                                                                                       |
 | **file_in_url**            | Name of the file of interest in the download from specified url. Not required for BCGW downloads.                                                                                            |
 | **layer_in_file**          | For downloads of multi-layer files. Not required for BCGW downloads     |
