@@ -10,9 +10,9 @@ A complete run of the tool was completed on Sept 21, 2017, and the results are r
 
 ## Requirements
 
-- Python 3.7+
+- Python >=3.7
 - GDAL (with `ogr2ogr` available at the command line) (tested with GDAL 3.0.2)
-- a PostGIS enabled PostgreSQL database (tested with Postgres 11.6, PostGIS 2.5.3 via Docker container `crunchydata/crunchy-postgres-appdev`)
+- a PostGIS enabled PostgreSQL database (tested with PostgreSQL 11.6, PostGIS 2.5.3 via Docker container `crunchydata/crunchy-postgres-appdev`)
 
 
 ## Optional

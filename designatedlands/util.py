@@ -25,6 +25,7 @@ from pathlib import Path
 import logging
 import pgdata
 
+from osgeo import gdal
 import fiona
 
 
@@ -64,6 +65,35 @@ def union(db_url, in_table, columns, out_table):
              GROUP BY {columns}
           """
     db.execute(sql)
+
+
+def create_rat(in_raster, lookup, band_number=1):
+    """
+    Create simple raster attribute table based on lookup {int: string} dict
+    Output RAT columns: VALUE (integer), DESCRIPTION (string)
+    eg: lookup = {1: "URBAN", 5: "WATER", 11: "AGRICULTURE", 16: "MINING"}
+    https://gis.stackexchange.com/questions/333897/read-rat-raster-attribute-table-using-gdal-or-other-python-libraries
+    """
+    # open the raster at band
+    raster = gdal.Open(in_raster, gdal.GA_Update)
+    band = raster.GetRasterBand(band_number)
+
+    # Create and populate the RAT
+    rat = gdal.RasterAttributeTable()
+    rat.CreateColumn('VALUE', gdal.GFT_Integer, gdal.GFU_Generic)
+    rat.CreateColumn('DESCRIPTION', gdal.GFT_String, gdal.GFU_Generic)
+
+    i = 0
+    for value, description in sorted(lookup.items()):
+        rat.SetValueAsInt(i, 0, int(value))
+        rat.SetValueAsString(i, 1, str(description))
+        i += 1
+
+    raster.FlushCache()
+    band.SetDefaultRAT(rat)
+    raster = None
+    rat = None
+    band = None
 
 
 def parallel_tiled(db_url, sql, tile, n_subs=1):

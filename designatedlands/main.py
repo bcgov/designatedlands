@@ -573,7 +573,7 @@ class DesignatedLands(object):
             for level in [4, 3, 2, 1]:
                 LOG.info(f"Inserting restriction level {level} into table {restriction}_restriction")
                 sql = self.db.build_query(
-                    self.db.queries["insert_difference"],
+                    self.db.queries["aggregated_insert_difference"],
                     {
                         "in_table": "designatedlands.designatedlands",
                         "out_table": f"designatedlands.{restriction}_restriction",
@@ -597,7 +597,7 @@ class DesignatedLands(object):
                     "in_table": "designatedlands.bc_boundary",
                     "out_table": f"designatedlands.{restriction}_restriction",
                     "columns": f"{restriction}_restriction",
-                    "query": "bc_boundary = 'bc_boundary_land'",
+                    "query": "AND bc_boundary = 'bc_boundary_land'",
                     "source_pk": "bc_boundary_id"
                 },
             )
@@ -718,11 +718,24 @@ class DesignatedLands(object):
             )
 
             LOG.info("- assigning output values")
-            # tag designations and restriction types
+
+            # update designations, they are already ordered
             designation[index_array] = hierarchy_val
-            forest_restriction[index_array] = forest_restriction_val
-            og_restriction[index_array] = og_restriction_val
-            mine_restriction[index_array] = mine_restriction_val
+
+            # update restrictions only if new restriction is more restrictive (higher value)
+            # this works but there is likely a faster / less resource intensive way to do this?
+            restriction_index = np.where(
+                (index_array == 1) & (forest_restriction < forest_restriction_val)
+            )
+            forest_restriction[restriction_index] = forest_restriction_val
+            restriction_index = np.where(
+                (index_array == 1) & (og_restriction < og_restriction_val)
+            )
+            og_restriction[restriction_index] = og_restriction_val
+            restriction_index = np.where(
+                (index_array == 1) & (mine_restriction < mine_restriction_val)
+            )
+            mine_restriction[restriction_index] = mine_restriction_val
 
         # define name of output tif for each array
         out_rasters = [
@@ -748,6 +761,17 @@ class DesignatedLands(object):
                 nodata=255,
             ) as dst:
                 dst.write(out_raster[0], indexes=1)
+
+        # create rats
+        # flip the restriction lookup so it is {int: string}
+        restriction_lookup = {v: k for k, v in self.restriction_lookup.items()}
+        for r in ["forest", "og", "mine"]:
+            tif = os.path.join(self.config["out_path"], r + "_restriction.tif")
+            util.create_rat(tif, restriction_lookup)
+        # and the designation/hierarchy rat
+        tif = os.path.join(self.config["out_path"], "designatedlands.tif")
+        designation_lookup = {int(s["hierarchy"]): s["designation"] for s in self.sources}
+        util.create_rat(tif, designation_lookup)
 
     def get_tiles(self, table, tile_table="tiles_250k"):
         """Return a list of all tiles intersecting supplied table
