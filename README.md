@@ -67,14 +67,6 @@ This pattern should work on most OS.
           --name=dlpg ^
           crunchydata/crunchy-postgres-appdev
 
-10. Finally, add the `lostgis` functions to the database (again, modifying database connection paramaters as required):
-
-
-        psql -U designatedlands -f sql/ST_Safe_Difference.sql designatedlands
-        psql -U designatedlands -f sql/ST_Safe_Intersection.sql designatedlands
-        psql -U designatedlands -f sql/ST_Safe_Repair.sql designatedlands
-
-
 ### Additional Docker notes
 
 Running the container like this:

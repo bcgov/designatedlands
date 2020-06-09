@@ -19,11 +19,7 @@ import fiona
 from cligj import verbose_opt, quiet_opt
 from pathlib import Path
 
-import pgdata
-
-from designatedlands import util
 from designatedlands import DesignatedLands
-from designatedlands import main
 
 
 def set_log_level(verbose, quiet):
@@ -112,10 +108,15 @@ def dump(config_file, verbose, quiet):
     set_log_level(verbose, quiet)
     DL = DesignatedLands(config_file)
     # overwrite output gpkg if it exists
-    out_path = Path(DL.config["out_path"])/"designatedlands.gpkg"
+    out_path = Path(DL.config["out_path"]) / "designatedlands.gpkg"
     if out_path.exists():
         out_path.unlink()
-    for table in ["designatedlands", "forest_restriction", "og_restriction", "mine_restriction"]:
+    for table in [
+        "designatedlands",
+        "forest_restriction",
+        "og_restriction",
+        "mine_restriction",
+    ]:
         DL.db.pg2ogr(
             f"SELECT * FROM designatedlands.{table}",
             "GPKG",

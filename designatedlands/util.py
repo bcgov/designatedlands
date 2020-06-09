@@ -80,8 +80,8 @@ def create_rat(in_raster, lookup, band_number=1):
 
     # Create and populate the RAT
     rat = gdal.RasterAttributeTable()
-    rat.CreateColumn('VALUE', gdal.GFT_Integer, gdal.GFU_Generic)
-    rat.CreateColumn('DESCRIPTION', gdal.GFT_String, gdal.GFU_Generic)
+    rat.CreateColumn("VALUE", gdal.GFT_Integer, gdal.GFU_Generic)
+    rat.CreateColumn("DESCRIPTION", gdal.GFT_String, gdal.GFU_Generic)
 
     i = 0
     for value, description in sorted(lookup.items()):

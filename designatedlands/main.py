@@ -75,6 +75,7 @@ class DesignatedLands(object):
             self.config["n_processes"] = multiprocessing.cpu_count()
 
         self.db = pgdata.connect(self.config["db_url"])
+        self.db.ogr_string = f"PG:host={self.db.host} user={self.db.user} dbname={self.db.database} port={self.db.port}"
 
         # define valid restriction classes and assign raster values
         self.restriction_lookup = {
@@ -365,6 +366,11 @@ class DesignatedLands(object):
           - clip
           - union
         """
+        # make sure safe overlay/repair functions are loaded
+        self.db.execute(self.db.queries["ST_Safe_Repair"])
+        self.db.execute(self.db.queries["ST_Safe_Difference"])
+        self.db.execute(self.db.queries["ST_Safe_Intersection"])
+
         preprocess_sources = [
             s for s in self.sources if s["preprocess_operation"] != ""
         ]
@@ -387,16 +393,16 @@ class DesignatedLands(object):
                         )
                     )
                 LOG.info("Preprocessing " + source["src"])
-                self.clip(
-                    self.db_url,
+                util.clip(
+                    self.config["db_url"],
                     source["src"],
                     source["preprocess_args"],
                     source["preprc"],
                 )
             elif source["preprocess_operation"] == "union":
                 LOG.info("Preprocessing " + source["src"])
-                self.union(
-                    self.db_url,
+                util.union(
+                    self.config["db_url"],
                     source["src"],
                     source["preprocess_args"],
                     source["preprc"],
@@ -472,15 +478,15 @@ class DesignatedLands(object):
 
             # combine the boundary layers into new table bc_boundary
             sql = self.db.build_query(
-                    self.db.queries["insert_difference"],
-                    {
-                        "in_table": f"{source}_tiled",
-                        "out_table": "bc_boundary",
-                        "columns": "designation",
-                        "query": "",
-                        "source_pk": "id"
-                    },
-                )
+                self.db.queries["insert_difference"],
+                {
+                    "in_table": f"{source}_tiled",
+                    "out_table": "bc_boundary",
+                    "columns": "designation",
+                    "query": "",
+                    "source_pk": "id",
+                },
+            )
             tiles = self.get_tiles(f"{source}_tiled")
             func = partial(util.parallel_tiled, db.url, sql, n_subs=2)
             pool = multiprocessing.Pool(processes=self.config["n_processes"])
@@ -497,7 +503,9 @@ class DesignatedLands(object):
 
         # add empty restriction columns
         for restriction in ["forest", "og", "mine"]:
-            db.execute(f"ALTER TABLE designatedlands.bc_boundary ADD COLUMN {restriction}_restriction integer;")
+            db.execute(
+                f"ALTER TABLE designatedlands.bc_boundary ADD COLUMN {restriction}_restriction integer;"
+            )
 
     def tidy(self):
         """Create a single designatedlands table
@@ -571,7 +579,9 @@ class DesignatedLands(object):
             # (we are loading the difference at each step, so lower levels do
             # not overwrite higher levels)
             for level in [4, 3, 2, 1]:
-                LOG.info(f"Inserting restriction level {level} into table {restriction}_restriction")
+                LOG.info(
+                    f"Inserting restriction level {level} into table {restriction}_restriction"
+                )
                 sql = self.db.build_query(
                     self.db.queries["aggregated_insert_difference"],
                     {
@@ -579,7 +589,7 @@ class DesignatedLands(object):
                         "out_table": f"designatedlands.{restriction}_restriction",
                         "columns": f"{restriction}_restriction",
                         "query": f"AND {restriction}_restriction = {level}",
-                        "source_pk": "designatedlands_id"
+                        "source_pk": "designatedlands_id",
                     },
                 )
                 tiles = self.get_tiles("designatedlands.designatedlands")
@@ -590,7 +600,9 @@ class DesignatedLands(object):
                 pool.join()
 
             # and fill in the gaps with 0 restriction
-            LOG.info(f"Inserting areas with no restriction into table {restriction}_restriction")
+            LOG.info(
+                f"Inserting areas with no restriction into table {restriction}_restriction"
+            )
             sql = self.db.build_query(
                 self.db.queries["insert_difference"],
                 {
@@ -598,7 +610,7 @@ class DesignatedLands(object):
                     "out_table": f"designatedlands.{restriction}_restriction",
                     "columns": f"{restriction}_restriction",
                     "query": "AND bc_boundary = 'bc_boundary_land'",
-                    "source_pk": "bc_boundary_id"
+                    "source_pk": "bc_boundary_id",
                 },
             )
             tiles = self.get_tiles("designatedlands.designatedlands")
@@ -770,7 +782,9 @@ class DesignatedLands(object):
             util.create_rat(tif, restriction_lookup)
         # and the designation/hierarchy rat
         tif = os.path.join(self.config["out_path"], "designatedlands.tif")
-        designation_lookup = {int(s["hierarchy"]): s["designation"] for s in self.sources}
+        designation_lookup = {
+            int(s["hierarchy"]): s["designation"] for s in self.sources
+        }
         util.create_rat(tif, designation_lookup)
 
     def get_tiles(self, table, tile_table="tiles_250k"):
