@@ -220,7 +220,7 @@ class DesignatedLands(object):
         for i, source in enumerate(supporting_list, start=(len(self.sources) + 1)):
             source["id"] = i
             source["hierarchy"] = "00"
-            source["src"] = "designatedlands." + source["alias"]
+            source["src"] = "designatedlands." + source["designation"]
         self.sources_supporting = supporting_list
 
         # load source csv to the db
@@ -279,17 +279,17 @@ class DesignatedLands(object):
                     )
                 )
 
-    def download(self, alias=None, overwrite=False):
+    def download(self, designation=None, overwrite=False):
         """Download source data
         """
 
         sources = self.sources_supporting + self.sources
 
         # if supplied a layer name, only process that layer
-        if alias:
-            sources = [s for s in sources if s["alias"] == alias]
+        if designation:
+            sources = [s for s in sources if s["designation"] == designation]
             if not sources:
-                raise ValueError("Alias %s does not exist" % alias)
+                raise ValueError("designation %s does not exist" % designation)
 
         # download and load everything that we can automate
         for source in [s for s in sources if s["manual_download"] != "T"]:
@@ -359,7 +359,7 @@ class DesignatedLands(object):
             else:
                 LOG.info(source["src"] + " already loaded.")
 
-    def preprocess(self, alias=None):
+    def preprocess(self, designation=None):
         """
         Preprocess sources as specified
         Supported operations:
@@ -374,8 +374,8 @@ class DesignatedLands(object):
         preprocess_sources = [
             s for s in self.sources if s["preprocess_operation"] != ""
         ]
-        if alias:
-            preprocess_sources = [s for s in preprocess_sources if s["alias"] == alias]
+        if designation:
+            preprocess_sources = [s for s in preprocess_sources if s["designation"] == designation]
         LOG.info("Preprocessing")
         for source in preprocess_sources:
             if source["preprocess_operation"] not in ["clip", "union"]:

@@ -39,7 +39,7 @@ def cli():
 
 @cli.command()
 @click.argument("config_file", type=click.Path(exists=True), required=False)
-@click.option("--alias", "-a", help="The 'alias' key for the source of interest")
+@click.option("--designation", "-d", help="The 'designation' key for the source of interest")
 @click.option(
     "--overwrite",
     is_flag=True,
@@ -48,17 +48,17 @@ def cli():
 )
 @verbose_opt
 @quiet_opt
-def download(config_file, alias, overwrite, verbose, quiet):
+def download(config_file, designation, overwrite, verbose, quiet):
     """Download data, load to postgres
     """
     set_log_level(verbose, quiet)
     DL = DesignatedLands(config_file)
-    DL.download(alias=alias, overwrite=overwrite)
+    DL.download(designation=designation, overwrite=overwrite)
 
 
 @cli.command()
 @click.argument("config_file", type=click.Path(exists=True), required=False)
-@click.option("--alias", "-a", help="The 'alias' key for the source of interest")
+@click.option("--designation", "-a", help="The 'designation' key for the source of interest")
 @click.option(
     "--overwrite",
     is_flag=True,
@@ -67,11 +67,11 @@ def download(config_file, alias, overwrite, verbose, quiet):
 )
 @verbose_opt
 @quiet_opt
-def preprocess(config_file, alias, overwrite, verbose, quiet):
+def preprocess(config_file, designation, overwrite, verbose, quiet):
     """Create tiles layer and preprocess sources where required"""
     set_log_level(verbose, quiet)
     DL = DesignatedLands(config_file)
-    DL.preprocess(alias=alias)
+    DL.preprocess(designation=designation)
     DL.create_bc_boundary()
 
 
