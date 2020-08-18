@@ -29,35 +29,25 @@ This pattern should work on most OS.
 
 2. Open a [conda command prompt](https://docs.conda.io/projects/conda/en/latest/user-guide/getting-started.html)
 
-3. Create and activate a conda enviornment for the project:
-
-        $ conda create --name designatedlands
-        $ conda activate designatedlands
-
-1. Clone the repository and navigate to the project folder:
+3. Clone the repository and navigate to the project folder:
 
         $ git clone https://github.com/bcgov/designatedlands.git
         $ cd designatedlands
 
-4. Install `fiona` and `rasterio` using conda:
+4. Create and activate a conda enviornment for the project using the supplied `environment.yml`:
 
-        $ conda install fiona rasterio
+        $ conda env create -f environment.yml
+        $ conda activate designatedlands
 
-6. Install the designatedlands package
-
-        $ pip install -e .
-
-
-7. Download and install Docker using the appropriate link for your OS:
+5. Download and install Docker using the appropriate link for your OS:
     - [MacOS](https://download.docker.com/mac/stable/Docker.dmg)
     - [Windows](https://download.docker.com/win/stable/Docker%20Desktop%20Installer.exe)
 
-8. Get the database docker [container](https://hub.docker.com/r/crunchydata/crunchy-postgres-appdev):
-
+6. Get the database docker [container](https://hub.docker.com/r/crunchydata/crunchy-postgres-appdev):
 
         docker pull crunchydata/crunchy-postgres-appdev
 
-9. Run the container (modifying parameters to match those in the `db_url` variable in your `designatedlands.cfg` file)
+7. Run the container:
 
         docker run -d ^
           -p 5432:5432 ^
@@ -67,38 +57,20 @@ This pattern should work on most OS.
           --name=dlpg ^
           crunchydata/crunchy-postgres-appdev
 
-### Additional Docker notes
+    Running the container like this:
 
-Running the container like this:
+    - runs PostgreSQL in the background as a daemon
+    - allows you to connect to it on port 5432 from localhost or 127.0.0.1
+    - sets the default user to designatedlands
+    - sets the password for this user *and* the postgres user to designatedlands
+    - creates a PostGIS and PL/R enabled database named designatedlands
+    - names the container dlpg
 
-  - runs PostgreSQL in the background as a daemon
-  - allows you to connect to it on port 5432 from localhost or 127.0.0.1 (port number modified to avoid conflict with existing installations)
-  - sets the default user to designatedlands
-  - sets the password for this user *and * the postgres user to password
-  - creates a PostGIS and PL/R enabled database named designatedlands
-  - names the container dlpg
+    Note that the above docker command uses arbitrary database credentials. Modify the parameters in the command to match either your `$DATABASE_URL` environment variable or the values in the `db_url` parameter in the config file you supply to designatedlands (see below).
 
-  As long as you don't remove this container it will retain all the data you put in it. To start it up again:
+    As long as you don't remove this container, it will retain all the data you put in it. To start it up again:
 
-        docker start dlpg
-
-
-## Configuration
-
-Modify the general configuration of designatedlands by supplying a config file to the command line tool.
-Note that the config file does not have to contain all parameters, you only need to include those where you do not wish to use the default values.
-
-See example [`designateldands.cfg`](designatedlands.cfg) listing all configuration parameters.
-
-| KEY       | VALUE                                            |
-|-----------|--------------------------------------------------|
-| `source_data`| path to folder that holds downloaded datasets |
-| `sources_designations`| path to csv file holding designation data source definitions |
-| `sources_supporting`| path to csv file holding supporting data source definitions |
-| `out_path`| path to write output .gpkg and tiffs |
-| `db_url`| [SQLAlchemy connection URL](http://docs.sqlalchemy.org/en/latest/core/engines.html#postgresql) pointing to the postgres database (defaults to environment variable `$DATABASE_URL`)
-| `resolution`| resolution of output geotiff rasters (m) |
-| `n_processes`| Input layers are broken up by tile and processed in parallel, define how many parallel processes to use. (default of -1 indicates number of cores on your machine minus one)|
+          docker start dlpg
 
 
 ## Usage
@@ -107,20 +79,20 @@ First, configure or adapt the file `sources.csv` as required. This file defines 
 
 If running a new analysis, download data sources specified as **manual downloads** in `sources.csv` to the folder identified by the `source_data` key in the configuration.
 
-Using the `designatedlands` tool, load and process all data then dump the results to .tif/geopackage:
+Using the `designatedlands.py` command line tool, load and process all data then dump the results to .tif/geopackage:
 
 ```
-$ designatedlands download
-$ designatedlands preprocess
-$ designatedlands process_vector
-$ designatedlands process_raster
-$ designatedlands dump
+$ python designatedlands.py download
+$ python designatedlands.py preprocess
+$ python designatedlands.py process-vector
+$ python designatedlands.py process-raster
+$ python designatedlands.py dump
 ```
 
 See the `--help` for more options:
 ```
-$ designatedlands --help
-Usage: designatedlands [OPTIONS] COMMAND [ARGS]...
+$ python designatedlands.py --help
+Usage: designatedlands.py [OPTIONS] COMMAND [ARGS]...
 
 Options:
   --help  Show this message and exit.
@@ -137,8 +109,8 @@ Commands:
 
 For help regarding an individual command:
 ```
-$ designatedlands download --help
-Usage: designatedlands download [OPTIONS] [CONFIG_FILE]
+$ python designatedlands.py download --help
+Usage: designatedlands.py download [OPTIONS] [CONFIG_FILE]
 
   Download data, load to postgres
 
@@ -150,37 +122,7 @@ Options:
   --help            Show this message and exit.
 ```
 
-
-#### Overlay
-In addition to creating the output designated lands layer, this tool also provides a mechanism to overlay the results with administration or ecological units of your choice:
-
-```
-$ designatedlands overlay --help
-Usage: designatedlands overlay [OPTIONS] IN_FILE [CONFIG_FILE]
-
-  Intersect layer with designatedlands
-
-Options:
-  -l, --in_layer TEXT          Input layer name
-  --dump_file                  Dump to file (out_file in .cfg)
-  -nln, --new_layer_name TEXT  Name of overlay output layer
-  -v, --verbose                Increase verbosity.
-  -q, --quiet                  Decrease verbosity.
-  --help                       Show this message and exit.
-```
-
-For example, to overlay `designatedlands` with BC ecosections, first get `ERC_ECOSECTIONS_SP.gdb` from [here](https://catalogue.data.gov.bc.ca/dataset/ecosections-ecoregion-ecosystem-classification-of-british-columbia), then run the following command to create output `dl_eco.gpkg/eco_overlay`:
-
-```
-$ designatedlands overlay \
-    ERC_ECOSECTIONS_SP.gdb \
-    --in_layer WHSE_TERRESTRIAL_ECOLOGY_ERC_ECOSECTIONS_SP_polygon \
-    --new_layer_name eco_overlay \
-    --out_file dl_eco.gpkg \
-    --out_format GPKG
-```
-
-### sources.csv
+### sources csv files
 
 The files `sources_designations.csv` and `sources_supporting.csv` define all source layers and how they are processed. Edit these tables to customize the analysis.  Columns are noted below. All columns are present in `sources_designations.csv`, designation/hierarchy/restriction columns are not included in `sources_supporting.csv` but the remaining column definitions are identical. Note that order of rows in the files is not important, order your designations by populating the **hierarchy** column with integer values. Do not include a hierarchy integer for designations that are to be excluded (`exclude = T`)
 
@@ -206,6 +148,54 @@ The files `sources_designations.csv` and `sources_supporting.csv` define all sou
 | **preprocess_args** | Argument(s) to passs to **preprocess_operation** . `clip` requires a layer to clip by and `union` requires column(s) to aggregate by. For example, to clip a source by the Muskwa-Kechika Management Area boundary, set **preprocess_operation** = `clip` and **preprocess_args** = `mk_boundary` |
 | **notes**                  | Misc notes related to layer                                                                                                                                                            |
 | **license**                | The license under which the data is distrubted.
+
+
+### Configuration
+
+If required, you can modify the general configuration of designatedlands when running the commands above by supplying the path to a config file as a command line argument.
+Note that the config file does not have to contain all parameters, you only need to include those where you do not wish to use the default values.
+
+See example [`designateldands.cfg`](designatedlands.cfg) listing all configuration parameters.
+
+| KEY       | VALUE                                            |
+|-----------|--------------------------------------------------|
+| `source_data`| path to folder that holds downloaded datasets |
+| `sources_designations`| path to csv file holding designation data source definitions |
+| `sources_supporting`| path to csv file holding supporting data source definitions |
+| `out_path`| path to write output .gpkg and tiffs |
+| `db_url`| [SQLAlchemy connection URL](http://docs.sqlalchemy.org/en/latest/core/engines.html#postgresql) pointing to the postgres database (defaults to environment variable `$DATABASE_URL`)
+| `resolution`| resolution of output geotiff rasters (m) |
+| `n_processes`| Input layers are broken up by tile and processed in parallel, define how many parallel processes to use. (default of -1 indicates number of cores on your machine minus one)|
+
+
+### Overlay
+In addition to creating the output designated lands layer, this tool also provides a mechanism to overlay the results with administration or ecological units of your choice:
+
+```
+$ python designatedlands.py overlay --help
+Usage: designatedlands.py overlay [OPTIONS] IN_FILE [CONFIG_FILE]
+
+  Intersect layer with designatedlands
+
+Options:
+  -l, --in_layer TEXT          Input layer name
+  --dump_file                  Dump to file (out_file in .cfg)
+  -nln, --new_layer_name TEXT  Name of overlay output layer
+  -v, --verbose                Increase verbosity.
+  -q, --quiet                  Decrease verbosity.
+  --help                       Show this message and exit.
+```
+
+For example, to overlay `designatedlands` with BC ecosections, first get `ERC_ECOSECTIONS_SP.gdb` from [here](https://catalogue.data.gov.bc.ca/dataset/ecosections-ecoregion-ecosystem-classification-of-british-columbia), then run the following command to create output `dl_eco.gpkg/eco_overlay`:
+
+```
+$ python designatedlands.py overlay \
+    ERC_ECOSECTIONS_SP.gdb \
+    --in_layer WHSE_TERRESTRIAL_ECOLOGY_ERC_ECOSECTIONS_SP_polygon \
+    --new_layer_name eco_overlay \
+    --out_file dl_eco.gpkg \
+    --out_format GPKG
+```
 
 ## Aggregate output layers with Mapshaper
 

@@ -1,6 +1,0 @@
-Click
-Fiona
-cligj
-Requests
-bcdata
-pgdata

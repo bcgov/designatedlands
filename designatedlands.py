@@ -22,8 +22,17 @@ from math import ceil
 from urllib.parse import urlparse
 import subprocess
 from pathlib import Path
+import hashlib
+import requests
+import shutil
+import sys
+import tarfile
+import tempfile
+import urllib.request
+import zipfile
 
 import click
+from cligj import verbose_opt, quiet_opt
 from geoalchemy2 import Geometry
 import rasterio
 import pandas as pd
@@ -31,13 +40,32 @@ import numpy as np
 from sqlalchemy.schema import Column
 from sqlalchemy.types import Integer, UnicodeText
 from affine import Affine
+from osgeo import gdal
+import fiona
 
 import pgdata
-import designatedlands
-from designatedlands.config import defaultconfig
-from designatedlands import util
+
 
 LOG = logging.getLogger(__name__)
+
+
+# pick up db_url from $DATABASE_URL if available
+if "DATABASE_URL" in os.environ:
+    db_url = os.environ["DATABASE_URL"]
+else:
+    db_url = (
+        "postgresql://designatedlands:designatedlands@localhost:5432/designatedlands"
+    )
+
+DEFAULT_CONFIG = {
+    "dl_path": "source_data",
+    "sources_designations": "sources_designations.csv",
+    "sources_supporting": "sources_supporting.csv",
+    "out_path": "outputs",
+    "db_url": db_url,
+    "n_processes": -1,
+    "resolution": 10,
+}
 
 
 class ConfigError(Exception):
@@ -48,16 +76,205 @@ class ConfigValueError(Exception):
     """Configuration value error"""
 
 
+def set_log_level(verbose, quiet):
+    verbosity = verbose - quiet
+    log_level = max(10, 20 - 10 * verbosity)  # default to INFO log level
+    logging.basicConfig(
+        stream=sys.stderr,
+        level=log_level,
+        format="%(asctime)s %(name)-12s %(levelname)-8s %(message)s",
+    )
+
+
+def clip(db_url, in_table, clip_table, out_table):
+    """Clip geometry of in_table by clip_table, writing output to out_table
+    """
+    db = pgdata.connect(db_url)
+    columns = ", ".join(["a." + c for c in db[in_table].columns if c != "geom"])
+    sql = f"""CREATE TABLE {out_table} AS
+             SELECT
+               {columns},
+               CASE
+                 WHEN ST_CoveredBy(a.geom, b.geom) THEN a.geom
+                 ELSE ST_Multi(
+                        ST_CollectionExtract(
+                          ST_Intersection(a.geom,b.geom), 3)) END AS geom
+             FROM {in_table} AS a
+             INNER JOIN {clip_table} AS b
+             ON ST_Intersects(a.geom, b.geom)
+          """
+    db.execute(sql)
+
+
+def union(db_url, in_table, columns, out_table):
+    """Union/merge overlapping records with equivalent values for provided columns
+    """
+    db = pgdata.connect(db_url)
+    sql = f"""CREATE TABLE {out_table} AS
+             SELECT
+               {columns},
+               (ST_Dump(ST_Union(geom))).geom as geom
+             FROM {in_table}
+             GROUP BY {columns}
+          """
+    db.execute(sql)
+
+
+def create_rat(in_raster, lookup, band_number=1):
+    """
+    Create simple raster attribute table based on lookup {int: string} dict
+    Output RAT columns: VALUE (integer), DESCRIPTION (string)
+    eg: lookup = {1: "URBAN", 5: "WATER", 11: "AGRICULTURE", 16: "MINING"}
+    https://gis.stackexchange.com/questions/333897/read-rat-raster-attribute-table-using-gdal-or-other-python-libraries
+    """
+    # open the raster at band
+    raster = gdal.Open(in_raster, gdal.GA_Update)
+    band = raster.GetRasterBand(band_number)
+
+    # Create and populate the RAT
+    rat = gdal.RasterAttributeTable()
+    rat.CreateColumn("VALUE", gdal.GFT_Integer, gdal.GFU_Generic)
+    rat.CreateColumn("DESCRIPTION", gdal.GFT_String, gdal.GFU_Generic)
+
+    i = 0
+    for value, description in sorted(lookup.items()):
+        rat.SetValueAsInt(i, 0, int(value))
+        rat.SetValueAsString(i, 1, str(description))
+        i += 1
+
+    raster.FlushCache()
+    band.SetDefaultRAT(rat)
+    raster = None
+    rat = None
+    band = None
+
+
+def parallel_tiled(db_url, sql, tile, n_subs=1):
+    """
+    Create a connection and execute query for specified tile
+    n_subs is the number of places in the sql query that should be
+    substituted by the tile name
+    """
+    db = pgdata.connect(db_url, schema="designatedlands", multiprocessing=True)
+    # As we are explicitly splitting up our job by tile and processing tiles
+    # concurrently in individual connections we don't want the database to try
+    # and manage parallel execution of these queries within these connections.
+    # Turn off this connection's parallel execution:
+    db.execute("SET max_parallel_workers_per_gather = 0")
+    db.execute(sql, (tile + "%",) * n_subs)
+
+
+def download_non_bcgw(url, path, filename, layer=None, overwrite=False):
+    """
+    Download and extract a zipfile to unique location
+    Modified from https://github.com/OpenBounds/Processing/blob/master/utils.py
+    """
+    # create a unique name for downloading and unzipping, this ensures a given
+    # url will only get downloaded once
+    out_folder = os.path.join(path, hashlib.sha224(url.encode("utf-8")).hexdigest())
+    out_file = os.path.join(out_folder, filename)
+    if overwrite and os.path.exists(out_folder):
+        shutil.rmtree(out_folder)
+    if not os.path.exists(out_folder):
+        LOG.info("Downloading " + url)
+        parsed_url = urlparse(url)
+        urlfile = parsed_url.path.split("/")[-1]
+        _, extension = os.path.split(urlfile)
+        fp = tempfile.NamedTemporaryFile("wb", suffix=extension, delete=False)
+        if parsed_url.scheme == "http" or parsed_url.scheme == "https":
+            res = requests.get(url, stream=True, verify=False)
+            if not res.ok:
+                raise IOError
+
+            for chunk in res.iter_content(1024):
+                fp.write(chunk)
+        elif parsed_url.scheme == "ftp":
+            download = urllib.request.urlopen(url)
+            file_size_dl = 0
+            block_sz = 8192
+            while True:
+                buffer = download.read(block_sz)
+                if not buffer:
+                    break
+
+                file_size_dl += len(buffer)
+                fp.write(buffer)
+        fp.close()
+        # extract zipfile
+        Path(out_folder).mkdir(parents=True, exist_ok=True)
+        LOG.info("Extracting %s to %s" % (fp.name, out_folder))
+        zipped_file = get_compressed_file_wrapper(fp.name)
+        zipped_file.extractall(out_folder)
+        zipped_file.close()
+    # get layer name
+    if not layer:
+        layer = fiona.listlayers(os.path.join(out_folder, filename))[0]
+    return (out_file, layer)
+
+
+class ZipCompatibleTarFile(tarfile.TarFile):
+    """
+    Wrapper around TarFile to make it more compatible with ZipFile
+    Modified from https://github.com/OpenBounds/Processing/blob/master/utils.py
+    """
+
+    def infolist(self):
+        members = self.getmembers()
+        for m in members:
+            m.filename = m.name
+        return members
+
+    def namelist(self):
+        return self.getnames()
+
+
+def get_compressed_file_wrapper(path):
+    """ From https://github.com/OpenBounds/Processing/blob/master/utils.py
+    """
+    ARCHIVE_FORMAT_ZIP = "zip"
+    ARCHIVE_FORMAT_TAR_GZ = "tar.gz"
+    ARCHIVE_FORMAT_TAR_BZ2 = "tar.bz2"
+    archive_format = None
+    if path.endswith(".zip"):
+        archive_format = ARCHIVE_FORMAT_ZIP
+    elif path.endswith(".tar.gz") or path.endswith(".tgz"):
+        archive_format = ARCHIVE_FORMAT_TAR_GZ
+    elif path.endswith(".tar.bz2"):
+        archive_format = ARCHIVE_FORMAT_TAR_BZ2
+    else:
+        try:
+            with zipfile.ZipFile(path, "r") as f:
+                archive_format = ARCHIVE_FORMAT_ZIP
+        except:
+            try:
+                f = tarfile.TarFile.open(path, "r")
+                f.close()
+                archive_format = ARCHIVE_FORMAT_ZIP
+            except:
+                pass
+    if archive_format is None:
+        raise Exception("Unable to determine archive format")
+
+    if archive_format == ARCHIVE_FORMAT_ZIP:
+        return zipfile.ZipFile(path, "r")
+
+    elif archive_format == ARCHIVE_FORMAT_TAR_GZ:
+        return ZipCompatibleTarFile.open(path, "r:gz")
+
+    elif archive_format == ARCHIVE_FORMAT_TAR_BZ2:
+        return ZipCompatibleTarFile.open(path, "r:bz2")
+
+
 class DesignatedLands(object):
     """ A class to hold the job's config, data and methods
     """
 
     def __init__(self, config_file=None):
 
-        LOG.info("Initializing designatedlands v{}".format(designatedlands.__version__))
+        LOG.info("Initializing designatedlands")
 
         # load default config
-        self.config = defaultconfig.copy()
+        self.config = DEFAULT_CONFIG.copy()
 
         # if provided with a config file, replace config values with those present in
         # thie config file
@@ -310,6 +527,9 @@ class DesignatedLands(object):
                         self.config["db_url"],
                         "--schema",
                         "designatedlands",
+                        # be conservative, make just one request at a time
+                        "--max_workers",
+                        "1",
                         "--table",
                         # don't prefix table name with schema
                         source["src"].split(".")[1],
@@ -322,7 +542,7 @@ class DesignatedLands(object):
                 # run non-bcgw downloads
                 else:
                     LOG.info("Loading " + source["src"])
-                    file, layer = util.download_non_bcgw(
+                    file, layer = download_non_bcgw(
                         source["url"],
                         self.config["dl_path"],
                         source["file_in_url"],
@@ -375,7 +595,9 @@ class DesignatedLands(object):
             s for s in self.sources if s["preprocess_operation"] != ""
         ]
         if designation:
-            preprocess_sources = [s for s in preprocess_sources if s["designation"] == designation]
+            preprocess_sources = [
+                s for s in preprocess_sources if s["designation"] == designation
+            ]
         LOG.info("Preprocessing")
         for source in preprocess_sources:
             if source["preprocess_operation"] not in ["clip", "union"]:
@@ -393,7 +615,7 @@ class DesignatedLands(object):
                         )
                     )
                 LOG.info("Preprocessing " + source["src"])
-                util.clip(
+                clip(
                     self.config["db_url"],
                     source["src"],
                     source["preprocess_args"],
@@ -401,7 +623,7 @@ class DesignatedLands(object):
                 )
             elif source["preprocess_operation"] == "union":
                 LOG.info("Preprocessing " + source["src"])
-                util.union(
+                union(
                     self.config["db_url"],
                     source["src"],
                     source["preprocess_args"],
@@ -488,7 +710,7 @@ class DesignatedLands(object):
                 },
             )
             tiles = self.get_tiles(f"{source}_tiled")
-            func = partial(util.parallel_tiled, db.url, sql, n_subs=2)
+            func = partial(parallel_tiled, db.url, sql, n_subs=2)
             pool = multiprocessing.Pool(processes=self.config["n_processes"])
             pool.map(func, tiles)
             pool.close()
@@ -593,7 +815,7 @@ class DesignatedLands(object):
                     },
                 )
                 tiles = self.get_tiles("designatedlands.designatedlands")
-                func = partial(util.parallel_tiled, self.db.url, sql, n_subs=2)
+                func = partial(parallel_tiled, self.db.url, sql, n_subs=2)
                 pool = multiprocessing.Pool(processes=self.config["n_processes"])
                 pool.map(func, tiles)
                 pool.close()
@@ -614,7 +836,7 @@ class DesignatedLands(object):
                 },
             )
             tiles = self.get_tiles("designatedlands.designatedlands")
-            func = partial(util.parallel_tiled, self.db.url, sql, n_subs=2)
+            func = partial(parallel_tiled, self.db.url, sql, n_subs=2)
             pool = multiprocessing.Pool(processes=self.config["n_processes"])
             pool.map(func, tiles)
             pool.close()
@@ -779,13 +1001,13 @@ class DesignatedLands(object):
         restriction_lookup = {v: k for k, v in self.restriction_lookup.items()}
         for r in ["forest", "og", "mine"]:
             tif = os.path.join(self.config["out_path"], r + "_restriction.tif")
-            util.create_rat(tif, restriction_lookup)
+            create_rat(tif, restriction_lookup)
         # and the designation/hierarchy rat
         tif = os.path.join(self.config["out_path"], "designatedlands.tif")
         designation_lookup = {
             int(s["hierarchy"]): s["designation"] for s in self.sources
         }
-        util.create_rat(tif, designation_lookup)
+        create_rat(tif, designation_lookup)
 
     def get_tiles(self, table, tile_table="tiles_250k"):
         """Return a list of all tiles intersecting supplied table
@@ -858,7 +1080,7 @@ class DesignatedLands(object):
 
         if not tiles:
             tiles = self.get_tiles(table_b, "tiles")
-        func = partial(util.parallel_tiled, self.db.url, sql)
+        func = partial(parallel_tiled, self.db.url, sql)
         pool = multiprocessing.Pool(processes=self.config["n_processes"])
         # add a progress bar
         results_iter = pool.imap_unordered(func, tiles)
@@ -889,3 +1111,149 @@ class DesignatedLands(object):
         for source in self.sources:
             self.db[source["src"]].drop()
             self.db[source["preprc"]].drop()
+
+
+@click.group()
+def cli():
+    pass
+
+
+@cli.command()
+@click.argument("config_file", type=click.Path(exists=True), required=False)
+@click.option(
+    "--designation", "-d", help="The 'designation' key for the source of interest"
+)
+@click.option(
+    "--overwrite",
+    is_flag=True,
+    default=False,
+    help="Overwrite any existing output, force fresh download",
+)
+@verbose_opt
+@quiet_opt
+def download(config_file, designation, overwrite, verbose, quiet):
+    """Download data, load to postgres
+    """
+    set_log_level(verbose, quiet)
+    DL = DesignatedLands(config_file)
+    DL.download(designation=designation, overwrite=overwrite)
+
+
+@cli.command()
+@click.argument("config_file", type=click.Path(exists=True), required=False)
+@click.option(
+    "--designation", "-a", help="The 'designation' key for the source of interest"
+)
+@click.option(
+    "--overwrite",
+    is_flag=True,
+    default=False,
+    help="Overwrite any existing output, force fresh download",
+)
+@verbose_opt
+@quiet_opt
+def preprocess(config_file, designation, overwrite, verbose, quiet):
+    """Create tiles layer and preprocess sources where required"""
+    set_log_level(verbose, quiet)
+    DL = DesignatedLands(config_file)
+    DL.preprocess(designation=designation)
+    DL.create_bc_boundary()
+
+
+@cli.command()
+@click.argument("config_file", type=click.Path(exists=True), required=False)
+@verbose_opt
+@quiet_opt
+def process_vector(config_file, verbose, quiet):
+    """Create vector designation/restriction layers"""
+    set_log_level(verbose, quiet)
+    DL = DesignatedLands(config_file)
+    DL.tidy()
+    DL.restrictions()
+
+
+@cli.command()
+@click.argument("config_file", type=click.Path(exists=True), required=False)
+@verbose_opt
+@quiet_opt
+def process_raster(config_file, verbose, quiet):
+    """Create raster designation/restriction layers"""
+    set_log_level(verbose, quiet)
+    DL = DesignatedLands(config_file)
+    DL.rasterize()
+    DL.overlay_rasters()
+
+
+@cli.command()
+@click.argument("config_file", type=click.Path(exists=True), required=False)
+@verbose_opt
+@quiet_opt
+def dump(config_file, verbose, quiet):
+    """Dump output tables to file"""
+    set_log_level(verbose, quiet)
+    DL = DesignatedLands(config_file)
+    # overwrite output gpkg if it exists
+    out_path = Path(DL.config["out_path"]) / "designatedlands.gpkg"
+    if out_path.exists():
+        out_path.unlink()
+    for table in [
+        "designatedlands",
+        "forest_restriction",
+        "og_restriction",
+        "mine_restriction",
+    ]:
+        DL.db.pg2ogr(
+            f"SELECT * FROM designatedlands.{table}",
+            "GPKG",
+            str(out_path),
+            table,
+            geom_type="MULTIPOLYGON",
+        )
+
+
+@cli.command()
+@click.argument("in_file", type=click.Path(exists=True))
+@click.argument("config_file", type=click.Path(exists=True), required=False)
+@click.option("--in_layer", "-l", help="Input layer name")
+@click.option(
+    "--dump_file", is_flag=True, default=False, help="Dump to file (out_file in .cfg)"
+)
+@click.option("--new_layer_name", "-nln", help="Name of overlay output layer")
+@verbose_opt
+@quiet_opt
+def overlay(in_file, config_file, in_layer, dump_file, new_layer_name, verbose, quiet):
+    """Intersect layer with designatedlands
+    """
+    set_log_level(verbose, quiet)
+    DL = DesignatedLands(config_file)
+
+    if not in_layer:
+        in_layer = fiona.listlayers(in_file)[0]
+    if not new_layer_name:
+        new_layer_name = in_layer[:63]  # Maximum table name length is 63
+    out_layer = new_layer_name[:50] + "_overlay"
+    DL.db.ogr2pg(in_file, in_layer=in_layer, out_layer=new_layer_name)
+    # pull distinct tiles iterable into a list
+    tiles = [t for t in DL.db["tiles"].distinct("map_tile")]
+    DL.intersect(
+        "designatedlands", new_layer_name, out_layer, DL.config["n_processes"], tiles
+    )
+    # dump result to file
+    if dump_file:
+        dump(out_layer, DL.config["out_file"], DL.config["out_format"])
+
+
+@cli.command()
+@click.argument("config_file", type=click.Path(exists=True), required=False)
+@verbose_opt
+@quiet_opt
+def cleanup(config_file, verbose, quiet):
+    """Remove temporary tables
+    """
+    set_log_level(verbose, quiet)
+    DL = DesignatedLands(config_file)
+    DL.cleanup()
+
+
+if __name__ == "__main__":
+    cli()
