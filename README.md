@@ -122,7 +122,7 @@ Options:
   --help            Show this message and exit.
 ```
 
-### sources.csv
+## sources.csv
 
 The files `sources_designations.csv` and `sources_supporting.csv` define all source layers and how they are processed. Edit these tables to customize the analysis.  Columns are noted below. All columns are present in `sources_designations.csv`, designation/hierarchy/restriction columns are not included in `sources_supporting.csv` but the remaining column definitions are identical. Note that order of rows in the files is not important, order your designations by populating the **hierarchy** column with integer values. Do not include a hierarchy integer for designations that are to be excluded (`exclude = T`)
 
@@ -150,7 +150,7 @@ The files `sources_designations.csv` and `sources_supporting.csv` define all sou
 | **license**                | The license under which the data is distrubted.
 
 
-### Configuration
+## Configuration
 
 If required, you can modify the general configuration of designatedlands when running the commands above by supplying the path to a config file as a command line argument.
 Note that the config file does not have to contain all parameters, you only need to include those where you do not wish to use the default values.
@@ -168,7 +168,8 @@ See example [`designateldands.cfg`](designatedlands.cfg) listing all configurati
 | `n_processes`| Input layers are broken up by tile and processed in parallel, define how many parallel processes to use. (default of -1 indicates number of cores on your machine minus one)|
 
 
-### Overlay
+## Overlay
+
 In addition to creating the output designated lands layer, this tool also provides a mechanism to overlay the results with administration or ecological units of your choice:
 
 ```
@@ -282,7 +283,7 @@ This repository is maintained by [Environmental Reporting BC](http://www2.gov.bc
 
 ## Credits
 
-Thanks to [@Komzpa](https://github.com/Komzpa), [@pramsey](https://github.com/pramsey) and Stack Exchange for functions / blog posts / answers / advice on dealing with topological errors in PostGIS:
+Strategies for dealing with PostGIS precision issues:
 
 - [lostgis](https://github.com/gojuno/lostgis)
 - [buffering](https://gis.stackexchange.com/questions/101639/postgis-st-buffer-breaks-because-of-no-forward-edges)
