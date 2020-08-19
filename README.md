@@ -75,7 +75,7 @@ This pattern should work on most OS.
 
 ## Usage
 
-First, modify the `sources_designations.csv`and `sources_supporting.csv` files as required. These files define all designation data sources to be processed and how the script will process each source. See [below](#sources.csv) for a full description of these files and how they defines the various data sources.
+First, modify the `sources_designations.csv`and `sources_supporting.csv` files as required. These files define all designation data sources to be processed and how the script will process each source. See [below](#sources-csv-files) for a full description of these files and how they defines the various data sources.
 
 If any data sources are specified as **manual downloads** in the source csv files, download the data to the `source_data` folder (or optionally to the folder identified by the `source_data` key in the config file)
 
@@ -122,7 +122,7 @@ Options:
   --help            Show this message and exit.
 ```
 
-## sources.csv
+## sources csv files
 
 The files `sources_designations.csv` and `sources_supporting.csv` define all source layers and how they are processed. Edit these tables to customize the analysis.  Columns are noted below. All columns are present in `sources_designations.csv`, designation/hierarchy/restriction columns are not included in `sources_supporting.csv` but the remaining column definitions are identical. Note that order of rows in the files is not important, order your designations by populating the **hierarchy** column with integer values. Do not include a hierarchy integer for designations that are to be excluded (`exclude = T`)
 
