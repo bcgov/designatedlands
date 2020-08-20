@@ -1047,12 +1047,13 @@ class DesignatedLands(object):
 
         # create output table
         self.db[out_table].drop()
+
         # add primary key
-        pk = Column(out_table + "_id", Integer, primary_key=True)
-        # remove geom and tile
+        pk = Column(out_table.split(".")[1] + "_id", Integer, primary_key=True)
+
+        # remove geom and tile from columns list
         a = [c for c in columns_a if c.name != "geom" and c.name != "tile"]
         b = [c for c in columns_b if c.name != "geom" and c.name != "tile"]
-        g = [c for c in columns_a if c.name == "geom"]
         pgdata.Table(
             self.db,
             "designatedlands",
@@ -1087,9 +1088,9 @@ class DesignatedLands(object):
         with click.progressbar(results_iter, length=len(tiles)) as bar:
             for _ in bar:
                 pass
-        # pool.map(func, tiles)
         pool.close()
         pool.join()
+
         # delete any records with empty geometries in the out table
         self.db.execute(
             """DELETE FROM {t} WHERE ST_IsEmpty(geom) = True
@@ -1097,6 +1098,7 @@ class DesignatedLands(object):
                 t=out_table
             )
         )
+
         # add map_tile index to output
         self.db.execute(
             """CREATE INDEX ON {t} (intersect_tile text_pattern_ops)
@@ -1213,15 +1215,13 @@ def dump(config_file, verbose, quiet):
 
 @cli.command()
 @click.argument("in_file", type=click.Path(exists=True))
+@click.argument("out_file")
 @click.argument("config_file", type=click.Path(exists=True), required=False)
-@click.option("--in_layer", "-l", help="Input layer name")
-@click.option(
-    "--dump_file", is_flag=True, default=False, help="Dump to file (out_file in .cfg)"
-)
-@click.option("--new_layer_name", "-nln", help="Name of overlay output layer")
+@click.option("--in_layer", "-l", help="Name of input layer")
+@click.option("--out_layer", "-nln", help="Name of output layer")
 @verbose_opt
 @quiet_opt
-def overlay(in_file, config_file, in_layer, dump_file, new_layer_name, verbose, quiet):
+def overlay(in_file, out_file, config_file, in_layer, out_layer, verbose, quiet):
     """Intersect layer with designatedlands
     """
     set_log_level(verbose, quiet)
@@ -1229,18 +1229,42 @@ def overlay(in_file, config_file, in_layer, dump_file, new_layer_name, verbose, 
 
     if not in_layer:
         in_layer = fiona.listlayers(in_file)[0]
-    if not new_layer_name:
-        new_layer_name = in_layer[:63]  # Maximum table name length is 63
-    out_layer = new_layer_name[:50] + "_overlay"
-    DL.db.ogr2pg(in_file, in_layer=in_layer, out_layer=new_layer_name)
-    # pull distinct tiles iterable into a list
-    tiles = [t for t in DL.db["tiles"].distinct("map_tile")]
-    DL.intersect(
-        "designatedlands", new_layer_name, out_layer, DL.config["n_processes"], tiles
+
+    if not out_layer:
+        out_layer = in_layer
+
+    # maximum table name length is 63, trim in_layer just in case
+    new_layer_name = in_layer[:63].lower()
+    overlay_layer = "designatedlands." + new_layer_name[:50] + "_overlay"
+
+    # drop the tables if they exist
+    DL.db["designatedlands." + new_layer_name].drop()
+    DL.db["designatedlands." + overlay_layer].drop()
+
+    # load input layer to postgres
+    DL.db.ogr2pg(
+        in_file, in_layer=in_layer, out_layer=new_layer_name, schema="designatedlands"
     )
-    # dump result to file
-    if dump_file:
-        dump(out_layer, DL.config["out_file"], DL.config["out_format"])
+
+    # pull distinct tiles iterable into a list
+    tiles = [t for t in DL.db["designatedlands.tiles"].distinct("map_tile")]
+
+    # run the overlay
+    DL.intersect(
+        "designatedlands.designatedlands",
+        "designatedlands." + new_layer_name,
+        overlay_layer,
+        tiles,
+    )
+
+    # dump overlay table to file
+    DL.db.pg2ogr(
+        f"SELECT * FROM {overlay_layer}",
+        "GPKG",
+        str(out_file),
+        out_layer,
+        geom_type="MULTIPOLYGON",
+    )
 
 
 @cli.command()
