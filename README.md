@@ -174,17 +174,16 @@ In addition to creating the output designated lands layer, this tool also provid
 
 ```
 $ python designatedlands.py overlay --help
-Usage: designatedlands.py overlay [OPTIONS] IN_FILE [CONFIG_FILE]
+Usage: designatedlands.py overlay [OPTIONS] IN_FILE OUT_FILE [CONFIG_FILE]
 
-  Intersect layer with designatedlands
+  Intersect layer with designatedlands and write to GPKG
 
 Options:
-  -l, --in_layer TEXT          Input layer name
-  --dump_file                  Dump to file (out_file in .cfg)
-  -nln, --new_layer_name TEXT  Name of overlay output layer
-  -v, --verbose                Increase verbosity.
-  -q, --quiet                  Decrease verbosity.
-  --help                       Show this message and exit.
+  -l, --in_layer TEXT     Name of input layer
+  -nln, --out_layer TEXT  Name of output layer
+  -v, --verbose           Increase verbosity.
+  -q, --quiet             Decrease verbosity.
+  --help                  Show this message and exit.
 ```
 
 For example, to overlay `designatedlands` with BC ecosections, first get `ERC_ECOSECTIONS_SP.gdb` from [here](https://catalogue.data.gov.bc.ca/dataset/ecosections-ecoregion-ecosystem-classification-of-british-columbia), then run the following command to create output `dl_eco.gpkg/eco_overlay`:
@@ -192,10 +191,9 @@ For example, to overlay `designatedlands` with BC ecosections, first get `ERC_EC
 ```
 $ python designatedlands.py overlay \
     ERC_ECOSECTIONS_SP.gdb \
-    --in_layer WHSE_TERRESTRIAL_ECOLOGY_ERC_ECOSECTIONS_SP_polygon \
-    --new_layer_name eco_overlay \
-    --out_file dl_eco.gpkg \
-    --out_format GPKG
+    dl_eco.gpkg \
+    --in_layer WHSE_TERRESTRIAL_ECOLOGY_ERC_ECOSECTIONS_SP \
+    --out_layer eco_overlay
 ```
 
 ## Aggregate output layers with Mapshaper

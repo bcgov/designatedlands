@@ -1222,7 +1222,7 @@ def dump(config_file, verbose, quiet):
 @verbose_opt
 @quiet_opt
 def overlay(in_file, out_file, config_file, in_layer, out_layer, verbose, quiet):
-    """Intersect layer with designatedlands
+    """Intersect layer with designatedlands and write to GPKG
     """
     set_log_level(verbose, quiet)
     DL = DesignatedLands(config_file)
