@@ -1114,6 +1114,19 @@ def cli():
 
 @cli.command()
 @click.argument("config_file", type=click.Path(exists=True), required=False)
+@verbose_opt
+@quiet_opt
+def test_connection(config_file, verbose, quiet):
+    """Confirm that connection to postgres is successful
+    """
+    set_log_level(verbose, quiet)
+    DL = DesignatedLands(config_file)
+    if DL.db:
+        click.echo("Connection to {db_url} successful".format(db_url=DL.config["db_url"]))
+
+
+@cli.command()
+@click.argument("config_file", type=click.Path(exists=True), required=False)
 @click.option(
     "--designation", "-d", help="The 'designation' key for the source of interest"
 )
