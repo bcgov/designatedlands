@@ -98,13 +98,14 @@ Options:
   --help  Show this message and exit.
 
 Commands:
-  cleanup         Remove temporary tables
-  download        Download data, load to postgres
-  dump            Dump output tables to file
-  overlay         Intersect layer with designatedlands
-  preprocess      Create tiles layer and preprocess sources where required
-  process-raster  Create raster designation/restriction layers
-  process-vector  Create vector designation/restriction layers
+  cleanup          Remove temporary tables
+  download         Download data, load to postgres
+  dump             Dump output tables to file
+  overlay          Intersect layer with designatedlands and write to GPKG
+  preprocess       Create tiles layer and preprocess sources where required
+  process-raster   Create raster designation/restriction layers
+  process-vector   Create vector designation/restriction layers
+  test-connection  Confirm that connection to postgres is successful
 ```
 
 For help regarding an individual command:
