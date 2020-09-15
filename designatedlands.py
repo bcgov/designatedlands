@@ -292,7 +292,7 @@ class DesignatedLands(object):
             self.config["n_processes"] = multiprocessing.cpu_count()
 
         self.db = pgdata.connect(self.config["db_url"])
-        self.db.ogr_string = f"PG:host={self.db.host} user={self.db.user} dbname={self.db.database} port={self.db.port}"
+        self.db.ogr_string = f"PG:host={self.db.host} user={self.db.user} dbname={self.db.database} password={self.db.password} port={self.db.port}"
 
         # define valid restriction classes and assign raster values
         self.restriction_lookup = {
