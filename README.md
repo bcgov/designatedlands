@@ -13,7 +13,7 @@ A complete run of the tool was completed on Sept 21, 2017, and the results are r
 - Python >=3.7
 - GDAL (with `ogr2ogr` available at the command line) (tested with GDAL 3.0.2)
 - a PostGIS enabled PostgreSQL database (tested with PostgreSQL 11.6, PostGIS 2.5.3 via Docker container `crunchydata/crunchy-postgres-appdev`)
-
+- for the raster processing, a relatively large amount of RAM (tested with 64GB, should work with 32GB, 16GB is likely insufficent)
 
 ## Optional
 
