@@ -66,7 +66,8 @@ This pattern should work on most OS.
     - creates a PostGIS and PL/R enabled database named designatedlands
     - names the container dlpg
 
-    Note that the above docker command uses arbitrary database credentials. Modify the parameters in the command to match either your `$DATABASE_URL` environment variable or the values in the `db_url` parameter in the config file you supply to designatedlands (see below).
+    Note that `designatedlands.py` uses the above database credentials as the default. If you need to change these (for example, changing the port
+    to avoid conflicting with a system installation), modify the `db_url` parameter in the config file you supply to designatedlands (see below).
 
     As long as you don't remove this container, it will retain all the data you put in it. To start it up again:
 
@@ -156,7 +157,7 @@ The files `sources_designations.csv` and `sources_supporting.csv` define all sou
 If required, you can modify the general configuration of designatedlands when running the commands above by supplying the path to a config file as a command line argument.
 Note that the config file does not have to contain all parameters, you only need to include those where you do not wish to use the default values.
 
-See example [`designateldands.cfg`](designatedlands.cfg) listing all configuration parameters.
+See example [`designateldands_sample_config.cfg`](designatedlands_sample_config.cfg) listing all configuration parameters.
 
 | KEY       | VALUE                                            |
 |-----------|--------------------------------------------------|
@@ -164,7 +165,7 @@ See example [`designateldands.cfg`](designatedlands.cfg) listing all configurati
 | `sources_designations`| path to csv file holding designation data source definitions |
 | `sources_supporting`| path to csv file holding supporting data source definitions |
 | `out_path`| path to write output .gpkg and tiffs |
-| `db_url`| [SQLAlchemy connection URL](http://docs.sqlalchemy.org/en/latest/core/engines.html#postgresql) pointing to the postgres database (defaults to environment variable `$DATABASE_URL`)
+| `db_url`| [SQLAlchemy connection URL](http://docs.sqlalchemy.org/en/latest/core/engines.html#postgresql) pointing to the postgres database
 | `resolution`| resolution of output geotiff rasters (m) |
 | `n_processes`| Input layers are broken up by tile and processed in parallel, define how many parallel processes to use. (default of -1 indicates number of cores on your machine minus one)|
 
