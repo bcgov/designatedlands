@@ -1199,10 +1199,12 @@ def dump(config_file, verbose, quiet):
     """Dump output tables to file"""
     set_log_level(verbose, quiet)
     DL = DesignatedLands(config_file)
-    # overwrite output gpkg if it exists
-    out_path = Path(DL.config["out_path"]) / "designatedlands.gpkg"
-    if out_path.exists():
-        out_path.unlink()
+    # create output folder if it does not exist
+    Path(DL.config["out_path"]).mkdir(parents=True, exist_ok=True)
+    # delete existing output gpkg if it exists
+    out_file = Path(DL.config["out_path"]) / "designatedlands.gpkg"
+    if out_file.exists():
+        out_file.unlink()
     for table in [
         "designatedlands",
         "forest_restriction",
@@ -1212,7 +1214,7 @@ def dump(config_file, verbose, quiet):
         DL.db.pg2ogr(
             f"SELECT * FROM designatedlands.{table}",
             "GPKG",
-            str(out_path),
+            str(out_file),
             table,
             geom_type="MULTIPOLYGON",
         )
