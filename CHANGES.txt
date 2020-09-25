@@ -3,6 +3,19 @@ Changes
 
 All issue numbers are relative to https://github.com/bcgov/designatedlands/issues.
 
+0.2.0 (2020-08-)
+------------------
+- create raster based outputs
+- add new resource based restriction columns and output layers (#38)
+- break sources.csv into two files, separating designation definitions from tiles/boundary etc
+- use a Docker based postgres db as default and provide setup guide (#64)
+- use latest bcdata, downloading via WFS direct to postgres (#65)
+- replace CARTS datasets with CPCAD (#62)
+- update community watershed field names (#71)
+- update bc boundary layer name (#60)
+- tidy and simplify code (#56, #58, #59, #66)
+- simplify installation via conda by de-packaging (consolidate code into single script, add `environment.yml`, remove `setup.py`)
+
 0.1.0 (2018-05-17)
 ------------------
 - change category for Forest Rec Sites (#50)

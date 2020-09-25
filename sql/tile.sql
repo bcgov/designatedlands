@@ -13,51 +13,45 @@
 
 -- ----------------------------------------------------------------------------------------------------
 
---   - tile/merge/repair data in src_table
---   - where available, retain source id and source name
-
+--   Create output table and insert merge/repaired data in src_table, tiling the output
+--   Note that the only attribute retained is 'designation'
 
 -- create empty table with new auto-indexed id column
 CREATE TABLE IF NOT EXISTS $out_table (
      id serial PRIMARY KEY,
      designation text,
-     designation_id text,
-     designation_name text,
      map_tile text,
      geom geometry
 );
 
--- insert cleaned data
-INSERT INTO $out_table (designation, designation_id, designation_name, map_tile, geom)
-  SELECT designation, designation_id, designation_name, map_tile, geom
+-- insert cleaned and tiled data
+INSERT INTO $out_table (designation, map_tile, geom)
+  SELECT designation, map_tile, geom
   FROM (SELECT
-          '$out_table'::TEXT AS designation,
-          a.$designation_id_col AS designation_id,
-          a.$designation_name_col AS designation_name,
+          '$designation'::TEXT AS designation,
           b.map_tile,
           -- make sure the output is valid
           ST_Safe_Repair(
           -- dump
             (ST_Dump(
-          -- merge records with the same name and id
-               ST_Union(
-          -- force to multipart just to make sure everthing is the same
-                 ST_Multi(
+          -- union to remove overlapping polys within the source
+            ST_Union(
+              ST_Multi(
           -- include only polygons in cases of geometrycollections
-                   ST_CollectionExtract(
+                ST_CollectionExtract(
           -- intersect with tiles
-                    CASE
-                      WHEN ST_CoveredBy(a.geom, b.geom) THEN a.geom
-                      ELSE ST_Safe_Intersection(a.geom, b.geom)
-                    END
-                  , 3)
+                  CASE
+                    WHEN ST_CoveredBy(a.geom, b.geom) THEN a.geom
+                    ELSE ST_Safe_Intersection(a.geom, b.geom)
+                  END
+                , 3)
                 )
               )
               )).geom) as geom
         FROM $src_table a
-        INNER JOIN tiles b ON ST_Intersects(a.geom, b.geom)
-        GROUP BY designation, designation_id, designation_name, map_tile) AS foo;
+        INNER JOIN designatedlands.tiles b ON ST_Intersects(a.geom, b.geom)
+        GROUP BY designation, map_tile) AS foo;
 
 -- index for speed
-CREATE INDEX $out_table_gix ON $out_table USING GIST (geom);
-CREATE INDEX $out_table_tileix ON $out_table (map_tile text_pattern_ops);
+CREATE INDEX ON $out_table USING GIST (geom);
+CREATE INDEX ON $out_table (map_tile text_pattern_ops);

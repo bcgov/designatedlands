@@ -18,24 +18,24 @@
 --    - 250k tiles in marine areas
 --    - 250m buffer at northern border (60deg)
 
-DROP TABLE IF EXISTS tiles;
-CREATE TABLE tiles (tile_id serial primary key, map_tile text, geom geometry);
+DROP TABLE IF EXISTS designatedlands.tiles;
+CREATE TABLE designatedlands.tiles (tile_id serial primary key, map_tile text, geom geometry);
 
-CREATE INDEX ON tiles (map_tile);
-CREATE INDEX tiles_gidx ON tiles USING GIST (geom) ;
+CREATE INDEX ON designatedlands.tiles (map_tile);
+CREATE INDEX tiles_gidx ON designatedlands.tiles USING GIST (geom) ;
 
 -- add 20k tiles
-INSERT INTO tiles (map_tile, geom)
-SELECT map_tile, geom FROM a00_tiles_20k;
+INSERT INTO designatedlands.tiles (map_tile, geom)
+SELECT map_tile, geom FROM designatedlands.tiles_20k;
 
 -- Add 250k tiles for marine areas
 -- (except for SSOG to avoid confusion with USA border)
 
-INSERT INTO tiles (map_tile, geom)
+INSERT INTO designatedlands.tiles (map_tile, geom)
 SELECT a.map_tile||'000',
 ST_Multi(ST_CollectionExtract(ST_Safe_Difference(a.geom, ST_Union(b.geom)), 3))
-FROM a00_tiles_250k a
-INNER JOIN a00_tiles_20k b
+FROM designatedlands.tiles_250k a
+INNER JOIN designatedlands.tiles_20k b
 ON ST_Intersects(a.geom, b.geom)
 WHERE a.map_tile IN
   ('092E','092C','102I','102O','102P','103A','103B',
@@ -46,7 +46,7 @@ GROUP BY a.map_tile, a.geom;
 -- first - grab 20k tiles along border by id
 WITH north_tiles AS
 (SELECT ST_Union(geom) as geom
-FROM a00_tiles_20k
+FROM designatedlands.tiles_20k
 WHERE (map_tile LIKE '114O%%'
    OR map_tile LIKE '114P%%'
    OR map_tile LIKE '104M%%'
@@ -71,7 +71,7 @@ FROM north_tiles),
 -- finally, insert the difference of the buffer and exising tiles (use 250k
 -- for speed) into our tile layer
 diff as (
-SELECT st_union(geom) as geom FROM a00_tiles_250k
+SELECT st_union(geom) as geom FROM tiles_250k
 WHERE (map_tile LIKE '114O%%'
    OR map_tile LIKE '114P%%'
    OR map_tile LIKE '104M%%'
@@ -83,7 +83,7 @@ WHERE (map_tile LIKE '114O%%'
    OR map_tile LIKE '094O%%'
    OR map_tile LIKE '094P%%'))
 
-INSERT INTO tiles (map_tile, geom)
+INSERT INTO designatedlands.tiles (map_tile, geom)
 SELECT
   '0000000' as map_tile,
   ST_Difference(a.geom, b.geom) as geom
