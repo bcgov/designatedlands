@@ -644,6 +644,8 @@ class DesignatedLands(object):
             CREATE TABLE designatedlands.bc_boundary (
                  bc_boundary_id serial PRIMARY KEY,
                  designation text,
+                 source_id text,
+                 source_name text,
                  map_tile text,
                  geom geometry
             );
@@ -782,6 +784,9 @@ class DesignatedLands(object):
                 CREATE TABLE designatedlands.{restriction}_restriction (
                   {restriction}_restriction_id SERIAL PRIMARY KEY,
                   {restriction}_restriction integer,
+                  designation text,
+                  source_id text,
+                  source_name text,
                   map_tile text,
                   geom geometry
                 );
@@ -801,7 +806,7 @@ class DesignatedLands(object):
                     {
                         "in_table": "designatedlands.designatedlands",
                         "out_table": f"designatedlands.{restriction}_restriction",
-                        "columns": f"{restriction}_restriction",
+                        "columns": f"{restriction}_restriction, designation, source_id, source_name",
                         "query": f"AND {restriction}_restriction = {level}",
                         "source_pk": "designatedlands_id",
                     },
