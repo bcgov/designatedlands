@@ -54,7 +54,7 @@ DEFAULT_CONFIG = {
     "sources_designations": "sources_designations.csv",
     "sources_supporting": "sources_supporting.csv",
     "out_path": "outputs",
-    "db_url": "postgresql://designatedlands:designatedlands@localhost:5432/designatedlands",
+    "db_url": "postgresql://postgres:postgres@localhost:5433/designatedlands",
     "n_processes": -1,
     "resolution": 10,
 }
@@ -407,14 +407,14 @@ class DesignatedLands(object):
 
             source["hierarchy"] = str(source["hierarchy"]).zfill(2)
             source["src"] = (
-                "designatedlands.src_"
+                "src_"
                 + str(source["id"]).zfill(2)
                 + "_"
                 + source["designation"]
             )
             source["preprc"] = source["src"] + "_preprc"
             source["dl"] = (
-                "designatedlands.dl_"
+                "dl_"
                 + source["hierarchy"]
                 + "_"
                 + source["designation"]
@@ -429,7 +429,7 @@ class DesignatedLands(object):
         for i, source in enumerate(supporting_list, start=(len(self.sources) + 1)):
             source["id"] = i
             source["hierarchy"] = "00"
-            source["src"] = "designatedlands." + source["designation"]
+            source["src"] = source["designation"]
         self.sources_supporting = supporting_list
 
         # load source csv to the db
@@ -503,12 +503,12 @@ class DesignatedLands(object):
         # download and load everything that we can automate
         for source in [s for s in sources if s["manual_download"] != "T"]:
             # drop table if exists
+            table_name = "public." + source["src"]
             if overwrite:
-                self.db[source["src"]].drop()
-            if source["src"] not in self.db.tables:
+                self.db.execute(f"DROP TABLE IF EXISTS {table_name}")
+            if table_name not in self.db.tables:
                 # run BCGW downloads directly (bcdata has its own parallelization)
                 if urlparse(source["url"]).hostname == "catalogue.data.gov.bc.ca":
-
                     # derive databc package name from the url
                     package = os.path.split(urlparse(source["url"]).path)[1]
                     cmd = [
@@ -518,13 +518,12 @@ class DesignatedLands(object):
                         "--db_url",
                         self.config["db_url"],
                         "--schema",
-                        "designatedlands",
+                        "public",
                         # be conservative, make just one request at a time
                         "--max_workers",
                         "1",
                         "--table",
-                        # don't prefix table name with schema
-                        source["src"].split(".")[1],
+                        source["src"],
                     ]
                     if source["query"]:
                         cmd = cmd + ["--query", source["query"]]
@@ -544,10 +543,9 @@ class DesignatedLands(object):
                     self.db.ogr2pg(
                         file,
                         in_layer=layer,
-                        # don't prefix table name with schema
-                        out_layer=source["src"].split(".")[1],
+                        out_layer=source["src"],
                         sql=source["query"],
-                        schema="designatedlands",
+                        schema="public",
                     )
             else:
                 LOG.info(source["src"] + " already loaded.")
@@ -559,8 +557,8 @@ class DesignatedLands(object):
                 raise Exception(file + " does not exist, download it manually")
             # drop table if exists
             if overwrite:
-                self.db[source["src"]].drop()
-            if source["src"] not in self.db.tables:
+                self.db.execute(f"DROP TABLE IF EXISTS {table_name}")
+            if table_name not in self.db.tables:
                 self.db.ogr2pg(
                     file,
                     in_layer=source["layer_in_file"],
@@ -597,10 +595,12 @@ class DesignatedLands(object):
                     "Preprocess operation %s not supprted"
                     % source["preprocess_operation"]
                 )
-            self.db[source["preprc"]].drop()
+            t = source["preprc"]
+            self.db.execute(f"DROP TABLE IF EXISTS {t}")
             # call the specified preprocess function
             if source["preprocess_operation"] == "clip":
-                if "designatedlands." + source["preprocess_args"] not in self.db.tables:
+                preprocess_table = "public." + source["preprocess_args"]
+                if preprocess_table not in self.db.tables:
                     raise RuntimeError(
                         "Clip layer {l} not found. Ensure it is loaded".format(
                             l=source["preprocess_args"]
@@ -609,8 +609,8 @@ class DesignatedLands(object):
                 LOG.info("Preprocessing " + source["src"])
                 clip(
                     self.config["db_url"],
-                    source["src"],
-                    source["preprocess_args"],
+                    "public." + source["src"],
+                    preprocess_table,
                     source["preprc"],
                 )
             elif source["preprocess_operation"] == "union":
@@ -640,39 +640,39 @@ class DesignatedLands(object):
         # initialize empty land/marine definition table
         db.execute(
             """
-            DROP TABLE IF EXISTS designatedlands.bc_boundary;
-            CREATE TABLE designatedlands.bc_boundary (
+            DROP TABLE IF EXISTS bc_boundary;
+            CREATE TABLE bc_boundary (
                  bc_boundary_id serial PRIMARY KEY,
                  designation text,
                  map_tile text,
-                 geom geometry
+                 geom geometry(Polygon, 3005)
             );
             """
         )
 
         # Prep boundary sources
         # First, combine ABMS boundary and marine ecosections
-        db["designatedlands.bc_boundary_marine"].drop()
+        db.execute("DROP TABLE IF EXISTS bc_boundary_marine")
         db.execute(
             """
-            CREATE TABLE designatedlands.bc_boundary_marine AS
+            CREATE TABLE bc_boundary_marine AS
                       SELECT
                         'bc_boundary_marine' as designation,
                          ST_Union(geom) as geom FROM
                           (SELECT st_union(geom) as geom
-                           FROM designatedlands.bc_abms
+                           FROM bc_abms
                            UNION ALL
-                           SELECT st_union(geom) as geom
-                           FROM designatedlands.marine_ecosections) as foo
+                           SELECT st_union(geom)::geometry(MULTIPOLYGON, 3005)::geometry(MULTIPOLYGON, 3005) as geom
+                           FROM marine_ecosections) as foo
                        GROUP BY designation"""
         )
         for source in [
-            "designatedlands.bc_boundary_land",
-            "designatedlands.bc_boundary_marine",
+            "bc_boundary_land",
+            "bc_boundary_marine",
         ]:
             LOG.info("Prepping and inserting into bc_boundary: %s" % source)
             # subdivide before attempting to tile
-            db[f"{source}_temp"].drop()
+            db.execute(f"DROP TABLE IF EXISTS {source}_temp")
             db.execute(
                 f"""
                 CREATE UNLOGGED TABLE {source}_temp AS
@@ -681,14 +681,14 @@ class DesignatedLands(object):
             )
 
             # tile
-            db[f"{source}_tiled"].drop()
+            db.execute(f"DROP TABLE IF EXISTS {source}_tiled")
             lookup = {
                 "src_table": f"{source}_temp",
                 "out_table": f"{source}_tiled",
-                "designation": source.split(".")[1],
+                "designation": source,
             }
             db.execute(db.build_query(db.queries["tile"], lookup))
-            db[f"{source}_temp"].drop()
+            db.execute(f"DROP TABLE IF EXISTS public.{source}_temp")
 
             # combine the boundary layers into new table bc_boundary
             sql = self.db.build_query(
@@ -709,19 +709,19 @@ class DesignatedLands(object):
             pool.join()
         # rename the 'designation' column
         db.execute(
-            """ALTER TABLE designatedlands.bc_boundary
+            """ALTER TABLE bc_boundary
                       RENAME COLUMN designation TO bc_boundary"""
         )
         # add index
-        db.execute("CREATE INDEX ON designatedlands.bc_boundary USING GIST (geom)")
+        db.execute("CREATE INDEX ON bc_boundary USING GIST (geom)")
 
         # add empty restriction columns
         for restriction in ["forest", "og", "mine"]:
             db.execute(
-                f"ALTER TABLE designatedlands.bc_boundary ADD COLUMN {restriction}_restriction integer;"
+                f"ALTER TABLE bc_boundary ADD COLUMN {restriction}_restriction integer;"
             )
 
-    def tidy(self):
+    def create_designatedlands(self):
         """Create a single designatedlands table
         - holds all designations
         - terrestrial only
@@ -729,11 +729,10 @@ class DesignatedLands(object):
         """
 
         # create output table
-        out_table = "designatedlands.designatedlands"
-        self.db[out_table].drop()
-        LOG.info("Creating: {}".format(out_table))
+        self.db.execute("DROP TABLE IF EXISTS designatedlands")
+        LOG.info("Creating designatedlands")
         sql = f"""
-        CREATE TABLE {out_table} (
+        CREATE TABLE designatedlands (
           designatedlands_id serial PRIMARY KEY,
           hierarchy integer,
           designation text,
@@ -743,7 +742,7 @@ class DesignatedLands(object):
           og_restriction integer,
           mine_restriction integer,
           map_tile text,
-          geom geometry
+          geom geometry(POLYGON, 3005)
         );
         """
         self.db.execute(sql)
@@ -754,9 +753,9 @@ class DesignatedLands(object):
             if source["preprc"] in self.db.tables:
                 input_table = source["preprc"]
 
-            LOG.info(f"Inserting data from {input_table} into {out_table}")
+            LOG.info(f"Inserting data from {input_table} into designatedlands")
             lookup = {
-                "out_table": out_table,
+                "out_table": "designatedlands",
                 "src_table": input_table,
                 "hierarchy": str(int(source["hierarchy"])),
                 "desig_type": source["designation"],
@@ -766,47 +765,63 @@ class DesignatedLands(object):
                 "og_restriction": str(source["og_restriction"]),
                 "mine_restriction": str(source["mine_restriction"]),
             }
-            sql = self.db.build_query(self.db.queries["merge"], lookup)
+            sql = self.db.build_query(self.db.queries["create_designatedlands"], lookup)
             self.db.execute(sql)
 
         # index geom
-        self.db[out_table].create_index_geom()
+        self.db["public.designatedlands"].create_index_geom()
 
-    def restrictions(self):
+    def create_restrictions(self):
         """Create individual restriction layers (vector)
         """
         for restriction in "forest", "og", "mine":
             # create table
             sql = f"""
-                DROP TABLE IF EXISTS designatedlands.{restriction}_restriction;
-                CREATE TABLE designatedlands.{restriction}_restriction (
+                DROP TABLE IF EXISTS {restriction}_restriction;
+                CREATE TABLE {restriction}_restriction (
                   {restriction}_restriction_id SERIAL PRIMARY KEY,
                   {restriction}_restriction integer,
                   map_tile text,
-                  geom geometry
-                );
-                CREATE INDEX ON designatedlands.{restriction}_restriction
-                USING GIST (geom);
+                  geom geometry(POLYGON, 3005)
+                )
                 """
             self.db.execute(sql)
-            # load in decreasing order of restriction level (4-1)
+
+            # load the most restrictive level (4) first, into the empty table
+            LOG.info(
+                    f"Inserting restriction level 4 into table {restriction}_restriction"
+            )
+            sql = f"""
+                INSERT INTO {restriction}_restriction
+                  ({restriction}_restriction, map_tile, geom)
+                SELECT
+                  4,
+                  map_tile,
+                  (ST_Dump(ST_Union(geom))).geom AS geom
+                FROM designatedlands
+                WHERE {restriction}_restriction = 4
+                GROUP BY map_tile;
+            """
+            self.db.execute(sql)
+
+            # load in decreasing order of restriction level (3-1)
             # (we are loading the difference at each step, so lower levels do
             # not overwrite higher levels)
-            for level in [4, 3, 2, 1]:
+            for level in [3, 2, 1]:
                 LOG.info(
                     f"Inserting restriction level {level} into table {restriction}_restriction"
                 )
                 sql = self.db.build_query(
                     self.db.queries["aggregated_insert_difference"],
                     {
-                        "in_table": "designatedlands.designatedlands",
-                        "out_table": f"designatedlands.{restriction}_restriction",
+                        "in_table": "designatedlands",
+                        "out_table": f"{restriction}_restriction",
                         "columns": f"{restriction}_restriction",
                         "query": f"AND {restriction}_restriction = {level}",
                         "source_pk": "designatedlands_id",
                     },
                 )
-                tiles = self.get_tiles("designatedlands.designatedlands")
+                tiles = self.get_tiles("designatedlands")
                 func = partial(parallel_tiled, self.db.url, sql, n_subs=2)
                 pool = multiprocessing.Pool(processes=self.config["n_processes"])
                 pool.map(func, tiles)
@@ -820,14 +835,14 @@ class DesignatedLands(object):
             sql = self.db.build_query(
                 self.db.queries["insert_difference"],
                 {
-                    "in_table": "designatedlands.bc_boundary",
-                    "out_table": f"designatedlands.{restriction}_restriction",
+                    "in_table": "bc_boundary",
+                    "out_table": f"{restriction}_restriction",
                     "columns": f"{restriction}_restriction",
                     "query": "AND bc_boundary = 'bc_boundary_land'",
                     "source_pk": "bc_boundary_id",
                 },
             )
-            tiles = self.get_tiles("designatedlands.designatedlands")
+            tiles = self.get_tiles("designatedlands")
             func = partial(parallel_tiled, self.db.url, sql, n_subs=2)
             pool = multiprocessing.Pool(processes=self.config["n_processes"])
             pool.map(func, tiles)
@@ -870,7 +885,7 @@ class DesignatedLands(object):
             self.db.ogr_string,
         ]
         # first, rasterize bc boundary
-        query = "SELECT * FROM designatedlands.bc_boundary_land"
+        query = "SELECT * FROM bc_boundary_land"
         hierarchy = 0
         command = gdal_rasterize + [
             "-burn",
@@ -885,7 +900,7 @@ class DesignatedLands(object):
         for hierarchy in reversed(
             list(set([int(s["hierarchy"]) for s in self.sources]))
         ):
-            query = f"SELECT * FROM designatedlands.designatedlands WHERE hierarchy={hierarchy}"
+            query = f"SELECT * FROM designatedlands WHERE hierarchy={hierarchy}"
             command = gdal_rasterize + [
                 "-burn",
                 f"{hierarchy}",
@@ -1019,8 +1034,8 @@ class DesignatedLands(object):
         Inputs must not have columns with equivalent names
         """
         # examine the inputs to determine what columns should be in the output
-        columns_a = [Column(c.name, c.type) for c in self.db[table_a].sqla_columns]
-        columns_b = [Column(c.name, c.type) for c in self.db[table_b].sqla_columns]
+        columns_a = [Column(c.name, c.type) for c in self.db["public." + table_a].sqla_columns]
+        columns_b = [Column(c.name, c.type) for c in self.db["public." + table_b].sqla_columns]
         column_names_a = set([c.name for c in columns_a if c.name != "geom"])
         column_names_b = set([c.name for c in columns_b if c.name != "geom"])
         # test for non-unique columns in input (other than geom)
@@ -1038,7 +1053,7 @@ class DesignatedLands(object):
             )
 
         # create output table
-        self.db[out_table].drop()
+        self.db.execute(f"DROP TABLE IF EXISTS {out_table}")
 
         # add primary key
         pk = Column(out_table.split(".")[1] + "_id", Integer, primary_key=True)
@@ -1103,8 +1118,8 @@ class DesignatedLands(object):
         # drop the source and preprocess tables
         LOG.info("Dropping all src_ and _preprc tables")
         for source in self.sources:
-            self.db[source["src"]].drop()
-            self.db[source["preprc"]].drop()
+            for t in (source["src"], source["preprc"]):
+                self.db.execute(f"DROP TABLE IF EXISTS {t}")
 
 
 @click.group()
@@ -1175,8 +1190,8 @@ def process_vector(config_file, verbose, quiet):
     """Create vector designation/restriction layers"""
     set_log_level(verbose, quiet)
     DL = DesignatedLands(config_file)
-    DL.tidy()
-    DL.restrictions()
+    #DL.create_designatedlands()
+    DL.create_restrictions()
 
 
 @cli.command()
@@ -1212,7 +1227,7 @@ def dump(config_file, verbose, quiet):
         "mine_restriction",
     ]:
         DL.db.pg2ogr(
-            f"SELECT * FROM designatedlands.{table}",
+            f"SELECT * FROM {table}",
             "GPKG",
             str(out_file),
             table,
@@ -1242,11 +1257,11 @@ def overlay(in_file, out_file, config_file, in_layer, out_layer, verbose, quiet)
 
     # maximum table name length is 63, trim in_layer just in case
     new_layer_name = in_layer[:63].lower()
-    overlay_layer = "designatedlands." + new_layer_name[:50] + "_overlay"
+    overlay_layer = new_layer_name[:50] + "_overlay"
 
     # drop the tables if they exist
-    DL.db["designatedlands." + new_layer_name].drop()
-    DL.db["designatedlands." + overlay_layer].drop()
+    self.db.execute(f"DROP TABLE IF EXISTS {new_layer_name}")
+    self.db.execute(f"DROP TABLE IF EXISTS {overlay_layer}")
 
     # load input layer to postgres
     DL.db.ogr2pg(
@@ -1254,12 +1269,12 @@ def overlay(in_file, out_file, config_file, in_layer, out_layer, verbose, quiet)
     )
 
     # pull distinct tiles iterable into a list
-    tiles = [t for t in DL.db["designatedlands.tiles"].distinct("map_tile")]
+    tiles = [t for t in DL.db["tiles"].distinct("map_tile")]
 
     # run the overlay
     DL.intersect(
-        "designatedlands.designatedlands",
-        "designatedlands." + new_layer_name,
+        "designatedlands",
+        new_layer_name,
         overlay_layer,
         tiles,
     )

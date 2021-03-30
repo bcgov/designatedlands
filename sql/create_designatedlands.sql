@@ -53,7 +53,7 @@ SELECT
   -- intersect with tiles on land
                   CASE
                     WHEN ST_CoveredBy(a.geom, b.geom) THEN a.geom
-                    ELSE ST_Safe_Intersection(a.geom, b.geom)
+                    ELSE ST_Intersection(a.geom, b.geom, .1)
                   END
                 , 3)
 
@@ -61,8 +61,7 @@ SELECT
       )
       )).geom) as geom
 FROM $src_table a
-INNER JOIN designatedlands.bc_boundary b
+INNER JOIN bc_boundary b
 ON ST_Intersects(a.geom, b.geom)
 WHERE b.bc_boundary = 'bc_boundary_land'
-GROUP BY designation, designation_id, designation_name, map_tile
-;
+GROUP BY designation, designation_id, designation_name, map_tile;

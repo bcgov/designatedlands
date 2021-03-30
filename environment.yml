@@ -9,12 +9,19 @@ dependencies:
   - geopandas=0.9.*
   - rasterio=1.2.*
   - requests=2.25.*
-  - sqlalchemy=1.4.*
-  - geoalchemy2=0.6.*
-  - sqlalchemy-utils=0.36.*
-  - owslib=0.23.*
+  - sqlalchemy<1.4
+  - geoalchemy2=0.8.4
+  - sqlalchemy-utils=0.36.8
   - alembic=1.5.*
+  - owslib=0.23.*
   - pip:
       - pgdata==0.0.12
       - bcdata==0.4.3
-
+variables:
+  PGHOST: localhost
+  PGUSER: postgres
+  PGPASSWORD: postgres
+  PGPORT: 5433
+  PGDATABASE: designatedlands
+  DATABASE_URL: postgresql://postgres:postgres@localhost:5433/designatedlands
+  PGOGR: 'host=localhost user=postgres dbname=designatedlands password=postgres port=5433'

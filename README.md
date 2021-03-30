@@ -43,27 +43,25 @@ This pattern should work on most OS.
     - [MacOS](https://download.docker.com/mac/stable/Docker.dmg)
     - [Windows](https://download.docker.com/win/stable/Docker%20Desktop%20Installer.exe)
 
-6. Get the database docker [container](https://hub.docker.com/r/crunchydata/crunchy-postgres-appdev):
+6. Get a docker container with a PostGIS 3.1 / Geos 3.9 enabled database:
 
-        docker pull crunchydata/crunchy-postgres-appdev
+        docker pull postgis/postgis:13-master
 
-7. Run the container:
+7. Run the container and create the database:
 
-        docker run -d ^
-          -p 5432:5432 ^
-          -e PG_USER=designatedlands ^
-          -e PG_PASSWORD=designatedlands ^
-          -e PG_DATABASE=designatedlands ^
-          --name=dlpg ^
-          crunchydata/crunchy-postgres-appdev
+        docker run --name dlpg \
+          -e POSTGRES_PASSWORD=postgres \
+          -e POSTGRES_USER=postgres \
+          -e PG_DATABASE=designatedlands \
+          -p 5433:5432 \
+          -d postgis/postgis:13-master
+        psql -c "CREATE DATABASE designatedlands" postgres
+        psql -c "CREATE EXTENSION postgis"
+
 
     Running the container like this:
 
-    - runs PostgreSQL in the background as a daemon
-    - allows you to connect to it on port 5432 from localhost or 127.0.0.1
-    - sets the default user to designatedlands
-    - sets the password for this user *and* the postgres user to designatedlands
-    - creates a PostGIS and PL/R enabled database named designatedlands
+    - allows you to connect to it on port 5433 from localhost or 127.0.0.1
     - names the container dlpg
 
     Note that `designatedlands.py` uses the above database credentials as the default. If you need to change these (for example, changing the port

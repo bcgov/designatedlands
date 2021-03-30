@@ -49,7 +49,7 @@ INSERT INTO $out_table (designation, map_tile, geom)
               )
               )).geom) as geom
         FROM $src_table a
-        INNER JOIN designatedlands.tiles b ON ST_Intersects(a.geom, b.geom)
+        INNER JOIN tiles b ON ST_Intersects(a.geom, b.geom)
         GROUP BY designation, map_tile) AS foo;
 
 -- index for speed
