@@ -803,7 +803,10 @@ class DesignatedLands(object):
                 GROUP BY map_tile;
             """
             self.db.execute(sql)
-
+            self.db.execute(f"""
+                  CREATE INDEX ON designatedlands.{restriction}_restriction
+                  USING GIST (geom);
+            """)
             # load in decreasing order of restriction level (3-1)
             # (we are loading the difference at each step, so lower levels do
             # not overwrite higher levels)
