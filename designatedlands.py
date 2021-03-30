@@ -407,18 +407,10 @@ class DesignatedLands(object):
 
             source["hierarchy"] = str(source["hierarchy"]).zfill(2)
             source["src"] = (
-                "src_"
-                + str(source["id"]).zfill(2)
-                + "_"
-                + source["designation"]
+                "src_" + str(source["id"]).zfill(2) + "_" + source["designation"]
             )
             source["preprc"] = source["src"] + "_preprc"
-            source["dl"] = (
-                "dl_"
-                + source["hierarchy"]
-                + "_"
-                + source["designation"]
-            )
+            source["dl"] = "dl_" + source["hierarchy"] + "_" + source["designation"]
 
         # read list of supporting layers and remove excluded rows
         supporting_list = [
@@ -766,7 +758,9 @@ class DesignatedLands(object):
                 "og_restriction": str(source["og_restriction"]),
                 "mine_restriction": str(source["mine_restriction"]),
             }
-            sql = self.db.build_query(self.db.queries["create_designations_overlapping"], lookup)
+            sql = self.db.build_query(
+                self.db.queries["create_designations_overlapping"], lookup
+            )
             self.db.execute(sql)
         self.db.execute("CREATE INDEX ON designations_overlapping USING GIST (geom)")
 
@@ -834,7 +828,7 @@ class DesignatedLands(object):
 
             # load the most restrictive level (4) first, into the empty table
             LOG.info(
-                    f"Inserting restriction level 4 into table {restriction}_restriction"
+                f"Inserting restriction level 4 into table {restriction}_restriction"
             )
             sql = f"""
                 INSERT INTO {restriction}_restriction
@@ -848,10 +842,12 @@ class DesignatedLands(object):
                 GROUP BY map_tile;
             """
             self.db.execute(sql)
-            self.db.execute(f"""
+            self.db.execute(
+                f"""
                   CREATE INDEX ON designatedlands.{restriction}_restriction
                   USING GIST (geom);
-            """)
+            """
+            )
             # load in decreasing order of restriction level (3-1)
             # (we are loading the difference at each step, so lower levels do
             # not overwrite higher levels)
@@ -1082,8 +1078,12 @@ class DesignatedLands(object):
         Inputs must not have columns with equivalent names
         """
         # examine the inputs to determine what columns should be in the output
-        columns_a = [Column(c.name, c.type) for c in self.db["public." + table_a].sqla_columns]
-        columns_b = [Column(c.name, c.type) for c in self.db["public." + table_b].sqla_columns]
+        columns_a = [
+            Column(c.name, c.type) for c in self.db["public." + table_a].sqla_columns
+        ]
+        columns_b = [
+            Column(c.name, c.type) for c in self.db["public." + table_b].sqla_columns
+        ]
         column_names_a = set([c.name for c in columns_a if c.name != "geom"])
         column_names_b = set([c.name for c in columns_b if c.name != "geom"])
         # test for non-unique columns in input (other than geom)
@@ -1185,7 +1185,9 @@ def test_connection(config_file, verbose, quiet):
     set_log_level(verbose, quiet)
     DL = DesignatedLands(config_file)
     if DL.db:
-        click.echo("Connection to {db_url} successful".format(db_url=DL.config["db_url"]))
+        click.echo(
+            "Connection to {db_url} successful".format(db_url=DL.config["db_url"])
+        )
 
 
 @cli.command()
@@ -1238,9 +1240,9 @@ def process_vector(config_file, verbose, quiet):
     """Create vector designation/restriction layers"""
     set_log_level(verbose, quiet)
     DL = DesignatedLands(config_file)
-    #DL.create_designations_overlapping()
+    # DL.create_designations_overlapping()
     DL.create_designations_planarized()
-    #DL.create_restrictions()
+    # DL.create_restrictions()
 
 
 @cli.command()
@@ -1322,10 +1324,7 @@ def overlay(in_file, out_file, config_file, in_layer, out_layer, verbose, quiet)
 
     # run the overlay
     DL.intersect(
-        "designatedlands",
-        new_layer_name,
-        overlay_layer,
-        tiles,
+        "designatedlands", new_layer_name, overlay_layer, tiles,
     )
 
     # dump overlay table to file
