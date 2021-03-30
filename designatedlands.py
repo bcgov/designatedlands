@@ -721,19 +721,20 @@ class DesignatedLands(object):
                 f"ALTER TABLE bc_boundary ADD COLUMN {restriction}_restriction integer;"
             )
 
-    def create_designatedlands(self):
-        """Create a single designatedlands table
+    def create_designations_overlapping(self):
+        """
+        Create a single designatedlands table
         - holds all designations
         - terrestrial only
         - overlaps included
         """
 
         # create output table
-        self.db.execute("DROP TABLE IF EXISTS designatedlands")
-        LOG.info("Creating designatedlands")
+        LOG.info("Creating designations_overlapping")
         sql = f"""
-        CREATE TABLE designatedlands (
-          designatedlands_id serial PRIMARY KEY,
+        DROP TABLE IF EXISTS designations_overlapping;
+        CREATE TABLE designations_overlapping (
+          designations_overlapping_id serial PRIMARY KEY,
           hierarchy integer,
           designation text,
           source_id text,
@@ -753,9 +754,9 @@ class DesignatedLands(object):
             if source["preprc"] in self.db.tables:
                 input_table = source["preprc"]
 
-            LOG.info(f"Inserting data from {input_table} into designatedlands")
+            LOG.info(f"Inserting data from {input_table} into designations_overlapping")
             lookup = {
-                "out_table": "designatedlands",
+                "out_table": "designations_overlapping",
                 "src_table": input_table,
                 "hierarchy": str(int(source["hierarchy"])),
                 "desig_type": source["designation"],
@@ -765,11 +766,55 @@ class DesignatedLands(object):
                 "og_restriction": str(source["og_restriction"]),
                 "mine_restriction": str(source["mine_restriction"]),
             }
-            sql = self.db.build_query(self.db.queries["create_designatedlands"], lookup)
+            sql = self.db.build_query(self.db.queries["create_designations_overlapping"], lookup)
             self.db.execute(sql)
+        self.db.execute("CREATE INDEX ON designations_overlapping USING GIST (geom)")
+
+    def create_designations_planarized(self):
+        """
+        From designations_overlapping, create designatedlands table with no overlaps
+        - holds all designations
+        - terrestrial only
+        - planarize features and aggregate overlap data into arrays
+        """
+
+        # create output table
+        self.db.execute("DROP TABLE IF EXISTS create_designations_planarized")
+        LOG.info("Creating designations_planarized")
+        sql = f"""
+            DROP TABLE IF EXISTS designations_planarized;
+            CREATE TABLE designations_planarized (
+              designations_planarized_id serial primary key,
+              hierarchy integer[],
+              designation text[],
+              source_id text[],
+              source_name text[],
+              forest_restriction integer[],
+              mine_restriction integer[],
+              og_restriction integer[],
+              map_tile text,
+              geom geometry(POLYGON, 3005)
+            );
+        """
+        self.db.execute(sql)
+
+        # insert data
+
+        LOG.info(f"Inserting data into designations_planarized")
+        sql = self.db.queries["create_designations_planarized"]
+        tiles = self.get_tiles("designations_overlapping")
+        func = partial(parallel_tiled, self.db.url, sql, n_subs=1)
+        pool = multiprocessing.Pool(processes=self.config["n_processes"])
+        # add a progress bar
+        results_iter = pool.imap_unordered(func, tiles)
+        with click.progressbar(results_iter, length=len(tiles)) as bar:
+            for _ in bar:
+                pass
+        pool.close()
+        pool.join()
 
         # index geom
-        self.db["public.designatedlands"].create_index_geom()
+        self.db["public.designations_planarized"].create_index_geom()
 
     def create_restrictions(self):
         """Create individual restriction layers (vector)
@@ -1193,8 +1238,9 @@ def process_vector(config_file, verbose, quiet):
     """Create vector designation/restriction layers"""
     set_log_level(verbose, quiet)
     DL = DesignatedLands(config_file)
-    #DL.create_designatedlands()
-    DL.create_restrictions()
+    #DL.create_designations_overlapping()
+    DL.create_designations_planarized()
+    #DL.create_restrictions()
 
 
 @cli.command()
