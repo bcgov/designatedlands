@@ -359,8 +359,8 @@ class DesignatedLands(object):
             if s["exclude"] != "T"
         ]
 
-        # sort by hierarchy
-        self.sources = sorted(designation_list, key=lambda k: int(k["hierarchy"]))
+        # sort by process_order
+        self.sources = sorted(designation_list, key=lambda k: int(k["process_order"]))
 
         # tidy strings
         for source in self.sources:
@@ -374,20 +374,20 @@ class DesignatedLands(object):
             ]:
                 source[column] = source[column].strip()
 
-        # do some basic checks on the input csv to see if hierarchy and restriction classes make sense
+        # do some basic checks on the input csv to see if process_order and restriction classes make sense
         self.validate_sources()
 
         # create designation property, a list of dicts.
-        # Initialize simply with {"hierarchy": n, "designation": val},
+        # Initialize simply with {"process_order": n, "designation": val},
         self.designations = (
             pd.DataFrame(self.sources)
-            .astype({"hierarchy": int})[["hierarchy", "designation"]]
+            .astype({"process_order": int})[["process_order", "designation"]]
             .drop_duplicates()
-            .sort_values("hierarchy")
+            .sort_values("process_order")
             .to_dict("records")
         )
 
-        # add id column, convert hierarchy to filled string, strip other values
+        # add id column, convert process_order to filled string, strip other values
         for i, source in enumerate(self.sources, start=1):
             source["id"] = i
             # make sure there are no leading/trailing spaces introduced
@@ -405,12 +405,12 @@ class DesignatedLands(object):
                 source["mine_restriction"].upper()
             ]
 
-            source["hierarchy"] = str(source["hierarchy"]).zfill(2)
+            source["process_order"] = str(source["process_order"]).zfill(2)
             source["src"] = (
                 "src_" + str(source["id"]).zfill(2) + "_" + source["designation"]
             )
             source["preprc"] = source["src"] + "_preprc"
-            source["dl"] = "dl_" + source["hierarchy"] + "_" + source["designation"]
+            source["dl"] = "dl_" + source["process_order"] + "_" + source["designation"]
 
         # read list of supporting layers and remove excluded rows
         supporting_list = [
@@ -420,7 +420,7 @@ class DesignatedLands(object):
         # add id column
         for i, source in enumerate(supporting_list, start=(len(self.sources) + 1)):
             source["id"] = i
-            source["hierarchy"] = "00"
+            source["process_order"] = "00"
             source["src"] = source["designation"]
         self.sources_supporting = supporting_list
 
@@ -450,13 +450,13 @@ class DesignatedLands(object):
     def validate_sources(self):
         """ Do some very basic validation of designations csv
         """
-        # check that hierarchy numbers start at 1 and end at n designations
-        h = list(set(int(d["hierarchy"]) for d in self.sources if d["exclude"] != "T"))
+        # check that process_order numbers start at 1 and end at n designations
+        h = list(set(int(d["process_order"]) for d in self.sources if d["exclude"] != "T"))
         if min(h) != 1:
-            raise ValueError("Lowest hierarchy in source table must be 1")
+            raise ValueError("Lowest process_order in source table must be 1")
         if min(h) + len(h) != max(h) + 1:
             raise ValueError(
-                "Highest hierarchy value in source table must be equivalent "
+                "Highest process_order value in source table must be equivalent "
                 "to the number of unique (non-excluded) designations"
             )
         # check that restriction classes are valid, as per self.restriction_lookup
@@ -727,7 +727,7 @@ class DesignatedLands(object):
         DROP TABLE IF EXISTS designations_overlapping;
         CREATE TABLE designations_overlapping (
           designations_overlapping_id serial PRIMARY KEY,
-          hierarchy integer,
+          process_order integer,
           designation text,
           source_id text,
           source_name text,
@@ -750,7 +750,7 @@ class DesignatedLands(object):
             lookup = {
                 "out_table": "designations_overlapping",
                 "src_table": input_table,
-                "hierarchy": str(int(source["hierarchy"])),
+                "process_order": str(int(source["process_order"])),
                 "desig_type": source["designation"],
                 "source_id_col": source["source_id_col"],
                 "source_name_col": source["source_name_col"],
@@ -779,13 +779,16 @@ class DesignatedLands(object):
             DROP TABLE IF EXISTS designations_planarized;
             CREATE TABLE designations_planarized (
               designations_planarized_id serial primary key,
-              hierarchy integer[],
+              process_order integer[],
               designation text[],
               source_id text[],
               source_name text[],
-              forest_restriction integer[],
-              mine_restriction integer[],
-              og_restriction integer[],
+              forest_restriction_input integer[],
+              mine_restriction_input integer[],
+              og_restriction_input integer[],
+              forest_restriction integer,
+              mine_restriction integer,
+              og_restriction integer,
               map_tile text,
               geom geometry(POLYGON, 3005)
             );
@@ -796,8 +799,8 @@ class DesignatedLands(object):
 
         LOG.info(f"Inserting data into designations_planarized")
         sql = self.db.queries["create_designations_planarized"]
-        tiles = self.get_tiles("designations_overlapping")
-        func = partial(parallel_tiled, self.db.url, sql, n_subs=1)
+        tiles = self.get_tiles("bc_boundary_land_tiled")
+        func = partial(parallel_tiled, self.db.url, sql, n_subs=2)
         pool = multiprocessing.Pool(processes=self.config["n_processes"])
         # add a progress bar
         results_iter = pool.imap_unordered(func, tiles)
@@ -809,89 +812,6 @@ class DesignatedLands(object):
 
         # index geom
         self.db["public.designations_planarized"].create_index_geom()
-
-    def create_restrictions(self):
-        """Create individual restriction layers (vector)
-        """
-        for restriction in "forest", "og", "mine":
-            # create table
-            sql = f"""
-                DROP TABLE IF EXISTS {restriction}_restriction;
-                CREATE TABLE {restriction}_restriction (
-                  {restriction}_restriction_id SERIAL PRIMARY KEY,
-                  {restriction}_restriction integer,
-                  map_tile text,
-                  geom geometry(POLYGON, 3005)
-                )
-                """
-            self.db.execute(sql)
-
-            # load the most restrictive level (4) first, into the empty table
-            LOG.info(
-                f"Inserting restriction level 4 into table {restriction}_restriction"
-            )
-            sql = f"""
-                INSERT INTO {restriction}_restriction
-                  ({restriction}_restriction, map_tile, geom)
-                SELECT
-                  4,
-                  map_tile,
-                  (ST_Dump(ST_Union(geom))).geom AS geom
-                FROM designatedlands
-                WHERE {restriction}_restriction = 4
-                GROUP BY map_tile;
-            """
-            self.db.execute(sql)
-            self.db.execute(
-                f"""
-                  CREATE INDEX ON designatedlands.{restriction}_restriction
-                  USING GIST (geom);
-            """
-            )
-            # load in decreasing order of restriction level (3-1)
-            # (we are loading the difference at each step, so lower levels do
-            # not overwrite higher levels)
-            for level in [3, 2, 1]:
-                LOG.info(
-                    f"Inserting restriction level {level} into table {restriction}_restriction"
-                )
-                sql = self.db.build_query(
-                    self.db.queries["aggregated_insert_difference"],
-                    {
-                        "in_table": "designatedlands",
-                        "out_table": f"{restriction}_restriction",
-                        "columns": f"{restriction}_restriction",
-                        "query": f"AND {restriction}_restriction = {level}",
-                        "source_pk": "designatedlands_id",
-                    },
-                )
-                tiles = self.get_tiles("designatedlands")
-                func = partial(parallel_tiled, self.db.url, sql, n_subs=2)
-                pool = multiprocessing.Pool(processes=self.config["n_processes"])
-                pool.map(func, tiles)
-                pool.close()
-                pool.join()
-
-            # and fill in the gaps with 0 restriction
-            LOG.info(
-                f"Inserting areas with no restriction into table {restriction}_restriction"
-            )
-            sql = self.db.build_query(
-                self.db.queries["insert_difference"],
-                {
-                    "in_table": "bc_boundary",
-                    "out_table": f"{restriction}_restriction",
-                    "columns": f"{restriction}_restriction",
-                    "query": "AND bc_boundary = 'bc_boundary_land'",
-                    "source_pk": "bc_boundary_id",
-                },
-            )
-            tiles = self.get_tiles("designatedlands")
-            func = partial(parallel_tiled, self.db.url, sql, n_subs=2)
-            pool = multiprocessing.Pool(processes=self.config["n_processes"])
-            pool.map(func, tiles)
-            pool.close()
-            pool.join()
 
     def rasterize(self):
         """
@@ -930,27 +850,27 @@ class DesignatedLands(object):
         ]
         # first, rasterize bc boundary
         query = "SELECT * FROM bc_boundary_land"
-        hierarchy = 0
+        process_order = 0
         command = gdal_rasterize + [
             "-burn",
-            f"{hierarchy}",
+            f"{process_order}",
             "-sql",
             f"{query}",
-            f"rasters/dl_{hierarchy}.tif",
+            f"rasters/dl_{process_order}.tif",
         ]
         LOG.info(" ".join(command))
         subprocess.run(command)
         # then rasterize the rest
-        for hierarchy in reversed(
-            list(set([int(s["hierarchy"]) for s in self.sources]))
+        for process_order in reversed(
+            list(set([int(s["process_order"]) for s in self.sources]))
         ):
-            query = f"SELECT * FROM designatedlands WHERE hierarchy={hierarchy}"
+            query = f"SELECT * FROM designatedlands WHERE process_order={process_order}"
             command = gdal_rasterize + [
                 "-burn",
-                f"{hierarchy}",
+                f"{process_order}",
                 "-sql",
                 f"{query}",
-                f"rasters/dl_{hierarchy}.tif",
+                f"rasters/dl_{process_order}.tif",
             ]
             LOG.info(" ".join(command))
             subprocess.run(command)
@@ -972,7 +892,7 @@ class DesignatedLands(object):
                 set(
                     [
                         (
-                            int(s["hierarchy"]),
+                            int(s["process_order"]),
                             s["forest_restriction"],
                             s["og_restriction"],
                             s["mine_restriction"],
@@ -985,19 +905,19 @@ class DesignatedLands(object):
         ):
             # unpack the values into individual variables
             (
-                hierarchy_val,
+                process_order_val,
                 forest_restriction_val,
                 og_restriction_val,
                 mine_restriction_val,
             ) = source
-            LOG.info("- loading hierarchy n" + str(hierarchy_val))
-            B = rasterio.open(f"rasters/dl_{hierarchy_val}.tif").read(1)
+            LOG.info("- loading process_order n" + str(process_order_val))
+            B = rasterio.open(f"rasters/dl_{process_order_val}.tif").read(1)
 
             # create index array pointing to cells we want to tag
-            # (in BC, and with current hierarchy number)
+            # (in BC, and with current process_order number)
             LOG.info("- creating index array")
             index_array = np.where(
-                (designation >= 0) & (designation != 255) & (B == hierarchy_val),
+                (designation >= 0) & (designation != 255) & (B == process_order_val),
                 True,
                 False,
             )
@@ -1005,7 +925,7 @@ class DesignatedLands(object):
             LOG.info("- assigning output values")
 
             # update designations, they are already ordered
-            designation[index_array] = hierarchy_val
+            designation[index_array] = process_order_val
 
             # update restrictions only if new restriction is more restrictive (higher value)
             # this works but there is likely a faster / less resource intensive way to do this?
@@ -1053,23 +973,20 @@ class DesignatedLands(object):
         for r in ["forest", "og", "mine"]:
             tif = os.path.join(self.config["out_path"], r + "_restriction.tif")
             create_rat(tif, restriction_lookup)
-        # and the designation/hierarchy rat
+        # and the designation/process_order rat
         tif = os.path.join(self.config["out_path"], "designatedlands.tif")
         designation_lookup = {
-            int(s["hierarchy"]): s["designation"] for s in self.sources
+            int(s["process_order"]): s["designation"] for s in self.sources
         }
         create_rat(tif, designation_lookup)
 
-    def get_tiles(self, table, tile_table="tiles_250k"):
-        """Return a list of all tiles intersecting supplied table
+    def get_tiles(self, table):
+        """Return a list of all tiles present in supplied table
         """
-        sql = """SELECT DISTINCT b.map_tile
-                 FROM {table} a
-                 INNER JOIN {tile_table} b ON st_intersects(b.geom, a.geom)
+        sql = """SELECT DISTINCT map_tile
+                 FROM {table}
                  ORDER BY map_tile
-              """.format(
-            table=table, tile_table=tile_table
-        )
+              """.format(table=table)
         return [r[0] for r in self.db.query(sql)]
 
     def intersect(self, table_a, table_b, out_table, tiles=None):
@@ -1240,9 +1157,8 @@ def process_vector(config_file, verbose, quiet):
     """Create vector designation/restriction layers"""
     set_log_level(verbose, quiet)
     DL = DesignatedLands(config_file)
-    # DL.create_designations_overlapping()
+    #DL.create_designations_overlapping()
     DL.create_designations_planarized()
-    # DL.create_restrictions()
 
 
 @cli.command()
@@ -1271,19 +1187,41 @@ def dump(config_file, verbose, quiet):
     out_file = Path(DL.config["out_path"]) / "designatedlands.gpkg"
     if out_file.exists():
         out_file.unlink()
-    for table in [
-        "designatedlands",
-        "forest_restriction",
-        "og_restriction",
-        "mine_restriction",
-    ]:
-        DL.db.pg2ogr(
-            f"SELECT * FROM {table}",
-            "GPKG",
-            str(out_file),
-            table,
-            geom_type="MULTIPOLYGON",
-        )
+    DL.db.pg2ogr(
+        f"""SELECT designations_planarized_id,
+          array_to_string(designation,';') as designations,
+          array_to_string(source_id,';') as source_ids,
+          array_to_string(source_name,';') as source_names,
+          array_to_string(forest_restriction_input,';') as forest_restrictions,
+          array_to_string(mine_restriction_input,';') as mine_restrictions,
+          array_to_string(og_restriction_input,';') as og_restrictions,
+          forest_restriction,
+          mine_restriction,
+          og_restriction,
+          map_tile,
+          geom
+          FROM designations_planarized""",
+        "GPKG",
+        str(out_file),
+        "designations_planarized",
+        geom_type="POLYGON",
+    )
+    DL.db.pg2ogr(
+        f"""SELECT designations_overlapping_id,
+          designation,
+          source_id,
+          source_name,
+          forest_restriction,
+          mine_restriction,
+          og_restriction,
+          map_tile,
+          geom
+          FROM designations_overlapping""",
+        "GPKG",
+        str(out_file),
+        "designations_overlapping",
+        geom_type="POLYGON",
+    )
 
 
 @cli.command()
@@ -1311,8 +1249,8 @@ def overlay(in_file, out_file, config_file, in_layer, out_layer, verbose, quiet)
     overlay_layer = new_layer_name[:50] + "_overlay"
 
     # drop the tables if they exist
-    self.db.execute(f"DROP TABLE IF EXISTS {new_layer_name}")
-    self.db.execute(f"DROP TABLE IF EXISTS {overlay_layer}")
+    DL.db.execute(f"DROP TABLE IF EXISTS {new_layer_name}")
+    DL.db.execute(f"DROP TABLE IF EXISTS {overlay_layer}")
 
     # load input layer to postgres
     DL.db.ogr2pg(

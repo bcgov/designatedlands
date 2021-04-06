@@ -47,7 +47,7 @@ This pattern should work on most OS.
 
         docker pull postgis/postgis:13-master
 
-7. Run the container and create the database:
+7. Run the container, create the database, add required extensions:
 
         docker run --name dlpg \
           -e POSTGRES_PASSWORD=postgres \
@@ -57,6 +57,7 @@ This pattern should work on most OS.
           -d postgis/postgis:13-master
         psql -c "CREATE DATABASE designatedlands" postgres
         psql -c "CREATE EXTENSION postgis"
+        psql -c "CREATE EXTENSION intarray"
 
 
     Running the container like this:

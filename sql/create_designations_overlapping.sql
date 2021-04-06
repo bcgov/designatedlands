@@ -20,7 +20,7 @@
 
 
 INSERT INTO $out_table (
-  hierarchy,
+  process_order,
   designation,
   source_id,
   source_name,
@@ -32,7 +32,7 @@ INSERT INTO $out_table (
 )
 
 SELECT
-  $hierarchy AS hierarchy,
+  $process_order AS process_order,
   '$desig_type'::TEXT AS designation,
   a.$source_id_col AS designation_id,
   a.$source_name_col AS designation_name,
