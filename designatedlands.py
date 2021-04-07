@@ -813,6 +813,9 @@ class DesignatedLands(object):
         # index geom
         self.db["public.designations_planarized"].create_index_geom()
 
+        # qa the outputs
+        self.db.execute(self.db.queries["qa"])
+
     def rasterize(self):
         """
         Dump all designatinons to raster
@@ -1157,7 +1160,7 @@ def process_vector(config_file, verbose, quiet):
     """Create vector designation/restriction layers"""
     set_log_level(verbose, quiet)
     DL = DesignatedLands(config_file)
-    #DL.create_designations_overlapping()
+    DL.create_designations_overlapping()
     DL.create_designations_planarized()
 
 

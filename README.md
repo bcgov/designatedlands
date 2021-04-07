@@ -168,6 +168,45 @@ See example [`designateldands_sample_config.cfg`](designatedlands_sample_config.
 | `resolution`| resolution of output geotiff rasters (m) |
 | `n_processes`| Input layers are broken up by tile and processed in parallel, define how many parallel processes to use. (default of -1 indicates number of cores on your machine minus one)|
 
+## Vector outputs
+
+The `designatedlands.py dump` command writes two layers to output geopackage `outputs/designatedlands.gpkg`:
+
+##### 1. `designations_overlapping`
+
+Each individual designation polygon is clipped to the terrestrial boundary of BC, repaired if necessary, then loaded to this layer otherwise unaltered.
+Where designations overlap, output polygons will overlap. Overlaps occur primarily between different designations, but are also present within the same designation.
+
+
+##### 2. `designations_planarized`
+
+Above `designations_overlapping` is further processed to remove overlaps and create a planarized output.
+Where overlaps occur, they are noted in the attributes as semi-colon separated values. For example, a polygon where a `uwr_no_harvest` designation overlaps with a `land_act_reserves_17` designation will have values like this:
+
+| designation | source_id | source_name |
+|-------------|-----------|-------------|
+|`uwr_no_harvest;land_act_reserves_17`|`137810341;964007`|`u-3-005;SEC 17 DESIGNATED USE AREA`
+
+The output restriction columns in this table (`forest_restriction`,`mine_restriction`,`og_restriction`) are assigned the value of the highest restriction present within the polygon for the given restriction type.
+
+Area totals for this layer are checked. To review the checks, see the tables in the postgres db:
+
+- `qa_compare_outputs` - reports on total area of each designation and the difference between `designations_overlapping` and `designations_planarized`. Any differences should be due to same source overlaps.
+- `qa_summary` - check that the total area of `designations_overlaps` matches total area of BC and check restriction areas.
+- `qa_total_check` - check that the total for each restriction class adds up to the total area of BC
+
+
+## Raster outputs
+
+Four output rasters are created:
+
+1. `designatedlands.tif` - output designations. In cases of overlap, the designation with the highest `process_order` is retained
+2. `forest_restriction.tif` - output forest restriction levels
+3. `mine_restriction.tif` - output mine restriction levels
+4. `og_restriction.tif` - output oil and gas restriction levels
+
+Raster attribute tables are available for each tif.
+
 
 ## Overlay
 
