@@ -60,105 +60,105 @@ SELECT
   'Forest restricted, full' as description,
   ROUND((SUM(ST_Area(geom)) / 10000)::numeric) AS area_ha
 FROM designations_planarized
-WHERE forest_restriction = 4
+WHERE forest_restriction_max = 4
 UNION ALL
 SELECT
 4 as row,
   'Forest restricted, high' as description,
   ROUND((SUM(ST_Area(geom)) / 10000)::numeric) AS area_ha
 FROM designations_planarized
-WHERE forest_restriction = 3
+WHERE forest_restriction_max = 3
 UNION ALL
 SELECT
 5 as row,
   'Forest restricted, medium' as description,
   ROUND((SUM(ST_Area(geom)) / 10000)::numeric) AS area_ha
 FROM designations_planarized
-WHERE forest_restriction = 2
+WHERE forest_restriction_max = 2
 UNION ALL
 SELECT
 6 as row,
   'Forest restricted, low' as description,
   ROUND((SUM(ST_Area(geom)) / 10000)::numeric) AS area_ha
 FROM designations_planarized
-WHERE forest_restriction = 1
+WHERE forest_restriction_max = 1
 UNION ALL
 SELECT
 7 as row,
   'Forest restricted, none' as description,
   ROUND((SUM(ST_Area(geom)) / 10000)::numeric) AS area_ha
 FROM designations_planarized
-WHERE forest_restriction = 0
+WHERE forest_restriction_max = 0
 UNION ALL
 SELECT
 8 as row,
   'Mine restricted, full' as description,
   ROUND((SUM(ST_Area(geom)) / 10000)::numeric) AS area_ha
 FROM designations_planarized
-WHERE mine_restriction = 4
+WHERE mine_restriction_max = 4
 UNION ALL
 SELECT
 9 as row,
   'Mine restricted, high' as description,
   ROUND((SUM(ST_Area(geom)) / 10000)::numeric) AS area_ha
 FROM designations_planarized
-WHERE mine_restriction = 3
+WHERE mine_restriction_max = 3
 UNION ALL
 SELECT
 10 as row,
   'Mine restricted, medium' as description,
   ROUND((SUM(ST_Area(geom)) / 10000)::numeric) AS area_ha
 FROM designations_planarized
-WHERE mine_restriction = 2
+WHERE mine_restriction_max = 2
 UNION ALL
 SELECT
 11 as row,
   'Mine restricted, low' as description,
   ROUND((SUM(ST_Area(geom)) / 10000)::numeric) AS area_ha
 FROM designations_planarized
-WHERE mine_restriction = 1
+WHERE mine_restriction_max = 1
 UNION ALL
 SELECT
 12 as row,
   'Mine restricted, none' as description,
   ROUND((SUM(ST_Area(geom)) / 10000)::numeric) AS area_ha
 FROM designations_planarized
-WHERE mine_restriction = 0
+WHERE mine_restriction_max = 0
 UNION ALL
 SELECT
 13 as row,
   'Oil and Gas restricted, full' as description,
   ROUND((SUM(ST_Area(geom)) / 10000)::numeric) AS area_ha
 FROM designations_planarized
-WHERE og_restriction = 4
+WHERE og_restriction_max = 4
 UNION ALL
 SELECT
 14 as row,
   'Oil and Gas restricted, high' as description,
   ROUND((SUM(ST_Area(geom)) / 10000)::numeric) AS area_ha
 FROM designations_planarized
-WHERE og_restriction = 3
+WHERE og_restriction_max = 3
 UNION ALL
 SELECT
 15 as row,
   'Oil and Gas restricted, medium' as description,
   ROUND((SUM(ST_Area(geom)) / 10000)::numeric) AS area_ha
 FROM designations_planarized
-WHERE og_restriction = 2
+WHERE og_restriction_max = 2
 UNION ALL
 SELECT
 16 as row,
   'Oil and Gas restricted, low' as description,
   ROUND((SUM(ST_Area(geom)) / 10000)::numeric) AS area_ha
 FROM designations_planarized
-WHERE og_restriction = 1
+WHERE og_restriction_max = 1
 UNION ALL
 SELECT
 17 as row,
   'Oil and Gas restricted, none' as description,
   ROUND((SUM(ST_Area(geom)) / 10000)::numeric) AS area_ha
 FROM designations_planarized
-WHERE og_restriction = 0
+WHERE og_restriction_max = 0
 ) as t
 order by row;
 
