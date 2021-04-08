@@ -183,11 +183,11 @@ Where designations overlap, output polygons will overlap. Overlaps occur primari
 Above `designations_overlapping` is further processed to remove overlaps and create a planarized output.
 Where overlaps occur, they are noted in the attributes as semi-colon separated values. For example, a polygon where a `uwr_no_harvest` designation overlaps with a `land_act_reserves_17` designation will have values like this:
 
-| designation | source_id | source_name |
-|-------------|-----------|-------------|
-|`uwr_no_harvest;land_act_reserves_17`|`137810341;964007`|`u-3-005;SEC 17 DESIGNATED USE AREA`
+| designation | source_id | source_name | forest_restrictions | mine_restrictions | og_restrictions |
+|-------------|-----------|-------------|-------------|-----------|-------------|
+|`uwr_no_harvest;land_act_reserves_17`|`137810341;964007`|`u-3-005;SEC 17 DESIGNATED USE AREA`|`4;0` | `2;1` | `0;0`
 
-The output restriction columns in this table (`forest_restriction`,`mine_restriction`,`og_restriction`) are assigned the value of the highest restriction present within the polygon for the given restriction type.
+The output restriction columns (`forest_restriction_max`,`mine_restriction_max`,`og_restriction_max`) are assigned the value of the highest restriction present within the polygon for the given restriction type.
 
 Area totals for this layer are checked. To review the checks, see the tables in the postgres db:
 
