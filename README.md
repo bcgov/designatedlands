@@ -12,7 +12,7 @@ A complete run of the tool was completed on Sept 21, 2017, and the results are r
 
 - Python >=3.7
 - GDAL (with `ogr2ogr` available at the command line) (tested with GDAL 3.0.2)
-- a PostGIS enabled PostgreSQL database (tested with PostgreSQL 11.6, PostGIS 2.5.3 via Docker container `crunchydata/crunchy-postgres-appdev`)
+- a PostGIS enabled PostgreSQL database (tested with PostgreSQL 13, scripts require PostGIS >=3.1/Geos >=3.9)
 - for the raster processing, a relatively large amount of RAM (tested with 64GB, should work with 32GB, 16GB is likely insufficent)
 
 ## Optional
@@ -43,21 +43,21 @@ This pattern should work on most OS.
     - [MacOS](https://download.docker.com/mac/stable/Docker.dmg)
     - [Windows](https://download.docker.com/win/stable/Docker%20Desktop%20Installer.exe)
 
-6. Get a docker container with a PostGIS 3.1 / Geos 3.9 enabled database:
+6. Get a Postgres docker container with a PostGIS 3.1 / Geos 3.9 enabled database:
 
-        docker pull postgis/postgis:13-master
+        $ docker pull postgis/postgis:13-master
 
-7. Run the container, create the database, add required extensions:
+7. Run the container, create the database, add required extensions (*note*: you will have to change the line continuation characters from `\` to `^` if running the job in Windows):
 
-        docker run --name dlpg \
+        $ docker run --name dlpg \
           -e POSTGRES_PASSWORD=postgres \
           -e POSTGRES_USER=postgres \
           -e PG_DATABASE=designatedlands \
           -p 5433:5432 \
           -d postgis/postgis:13-master
-        psql -c "CREATE DATABASE designatedlands" postgres
-        psql -c "CREATE EXTENSION postgis"
-        psql -c "CREATE EXTENSION intarray"
+        $ psql -c "CREATE DATABASE designatedlands" postgres
+        $ psql -c "CREATE EXTENSION postgis"
+        $ psql -c "CREATE EXTENSION intarray"
 
 
     Running the container like this:
@@ -68,9 +68,9 @@ This pattern should work on most OS.
     Note that `designatedlands.py` uses the above database credentials as the default. If you need to change these (for example, changing the port
     to avoid conflicting with a system installation), modify the `db_url` parameter in the config file you supply to designatedlands (see below).
 
-    As long as you don't remove this container, it will retain all the data you put in it. To start it up again:
+    As long as you don't remove this container, it will retain all the data you put in it. If you have shut down Docker or the container, you can start it up again with this command:
 
-          docker start dlpg
+          $ docker start dlpg
 
 
 ## Usage
