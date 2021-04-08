@@ -5,7 +5,8 @@
 -- these are expected to be similar - but not equal. This is because overlaps within
 -- designations occur (and can be extensive). This query shows just how extensive
 -- these overlaps can be.
-DROP TABLE IF EXISTS qa1_compare_outputs;
+DROP TABLE IF EXISTS qa_compare_outputs;
+
 CREATE TABLE qa_compare_outputs AS
 
 WITH overlap_summary AS
@@ -40,7 +41,7 @@ GROUP BY o.designation, o.area_ha;
 -- summarize the restrictions by type and level, and also compare the
 -- source bc_boundary land area to the total area in the output _planarized table
 -- (these should be very close to equal)
-DROP TABLE IF EXISTS qa2_restriction_summary;
+DROP TABLE IF EXISTS qa_summary;
 CREATE TABLE qa_summary AS
 SELECT * FROM
 (SELECT
@@ -165,7 +166,7 @@ order by row;
 
 -- Finally, add up the various restriction types - for each type, they should
 -- add up to the total area of BC
-DROP TABLE IF EXISTS qa3_total_check;
+DROP TABLE IF EXISTS qa_total_check;
 CREATE TABLE qa_total_check AS
 SELECT
   'Area total: designations_planarized' as description,
@@ -176,16 +177,16 @@ SELECT
 'Area total: forest restrictions' as description,
   sum(area_ha)
 FROM qa_summary
-WHERE description LIKE 'Forest%'
+WHERE description LIKE 'Forest%%'
 UNION ALL
 SELECT
 'Area total: mine restrictions' as description,
   sum(area_ha)
 FROM qa_summary
-WHERE description LIKE 'Mine%'
+WHERE description LIKE 'Mine%%'
 UNION ALL
 SELECT
 'Area total: oil and gas restrictions' as description,
   sum(area_ha)
 FROM qa_summary
-WHERE description LIKE 'Oil%';
+WHERE description LIKE 'Oil%%';

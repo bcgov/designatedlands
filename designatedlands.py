@@ -773,6 +773,7 @@ class DesignatedLands(object):
         """
 
         # create output table
+
         self.db.execute("DROP TABLE IF EXISTS create_designations_planarized")
         LOG.info("Creating designations_planarized")
         sql = f"""
@@ -796,7 +797,6 @@ class DesignatedLands(object):
         self.db.execute(sql)
 
         # insert data
-
         LOG.info(f"Inserting data into designations_planarized")
         sql = self.db.queries["create_designations_planarized"]
         tiles = self.get_tiles("bc_boundary_land_tiled")
