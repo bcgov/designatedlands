@@ -867,7 +867,7 @@ class DesignatedLands(object):
         for process_order in reversed(
             list(set([int(s["process_order"]) for s in self.sources]))
         ):
-            query = f"SELECT * FROM designatedlands WHERE process_order={process_order}"
+            query = f"SELECT * FROM designations_overlapping WHERE process_order={process_order}"
             command = gdal_rasterize + [
                 "-burn",
                 f"{process_order}",
