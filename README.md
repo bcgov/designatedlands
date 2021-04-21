@@ -53,7 +53,7 @@ This pattern should work on most OS.
           -e POSTGRES_PASSWORD=postgres \
           -e POSTGRES_USER=postgres \
           -e PG_DATABASE=designatedlands \
-          -p 5432:5432 \
+          -p 5433:5432 \
           -d postgis/postgis:13-master
         $ psql -c "CREATE DATABASE designatedlands" postgres
         $ psql -c "CREATE EXTENSION postgis"
