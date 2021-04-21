@@ -62,7 +62,7 @@ This pattern should work on most OS.
 
     Running the container like this:
 
-    - allows you to connect to it on port 5432 from localhost or 127.0.0.1
+    - allows you to connect to it on port 5433 from localhost or 127.0.0.1
     - names the container dlpg
 
     Note that `designatedlands.py` uses the above database credentials as the default. If you need to change these (for example, changing the port
