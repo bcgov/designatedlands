@@ -53,7 +53,7 @@ This pattern should work on most OS.
           -e POSTGRES_PASSWORD=postgres \
           -e POSTGRES_USER=postgres \
           -e PG_DATABASE=designatedlands \
-          -p 5433:5432 \
+          -p 5432:5432 \
           -d postgis/postgis:13-master
         $ psql -c "CREATE DATABASE designatedlands" postgres
         $ psql -c "CREATE EXTENSION postgis"
@@ -62,7 +62,7 @@ This pattern should work on most OS.
 
     Running the container like this:
 
-    - allows you to connect to it on port 5433 from localhost or 127.0.0.1
+    - allows you to connect to it on port 5432 from localhost or 127.0.0.1
     - names the container dlpg
 
     Note that `designatedlands.py` uses the above database credentials as the default. If you need to change these (for example, changing the port
@@ -156,7 +156,15 @@ The files `sources_designations.csv` and `sources_supporting.csv` define all sou
 If required, you can modify the general configuration of designatedlands when running the commands above by supplying the path to a config file as a command line argument.
 Note that the config file does not have to contain all parameters, you only need to include those where you do not wish to use the default values.
 
-See example [`designateldands_sample_config.cfg`](designatedlands_sample_config.cfg) listing all configuration parameters.
+An example configuration file is included [`designateldands_sample_config.cfg`](designatedlands_sample_config.cfg), listing all available configuration parameters, setting the raster resolution to 25m, and using only 4 cores.
+
+When using a configuration file, remember to specify it each time you use `designatedlands.py`, for example:
+
+    $ python designatedlands.py download designatedlands_sample_config.cfg
+    $ python designatedlands.py preprocess designatedlands_sample_config.cfg
+    $ python designatedlands.py process-vector designatedlands_sample_config.cfg
+    $ python designatedlands.py process-raster designatedlands_sample_config.cfg
+    $ python designatedlands.py dump designatedlands_sample_config.cfg
 
 | KEY       | VALUE                                            |
 |-----------|--------------------------------------------------|
@@ -167,6 +175,9 @@ See example [`designateldands_sample_config.cfg`](designatedlands_sample_config.
 | `db_url`| [SQLAlchemy connection URL](http://docs.sqlalchemy.org/en/latest/core/engines.html#postgresql) pointing to the postgres database
 | `resolution`| resolution of output geotiff rasters (m) |
 | `n_processes`| Input layers are broken up by tile and processed in parallel, define how many parallel processes to use. (default of -1 indicates number of cores on your machine minus one)|
+
+
+
 
 ## Vector outputs
 
