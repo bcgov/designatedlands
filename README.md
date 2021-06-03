@@ -202,7 +202,7 @@ Where overlaps occur, they are noted in the attributes as semi-colon separated v
 
 The output restriction columns (`forest_restriction_max`,`mine_restriction_max`,`og_restriction_max`) are assigned the value of the highest restriction present within the polygon for the given restriction type.
 
-## QA tables
+### QA tables
 
 Area totals for this layer are checked. To review the checks, see the tables in the postgres db:
 
