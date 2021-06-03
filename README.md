@@ -15,7 +15,7 @@ A complete run of the [previous version of the tool](https://github.com/bcgov/de
 - Python >=3.7
 - GDAL (with `ogr2ogr` available at the command line) (tested with GDAL 3.0.2)
 - a PostGIS enabled PostgreSQL database (tested with PostgreSQL 13, scripts require PostGIS >=3.1/Geos >=3.9)
-- for the raster processing, a relatively large amount of RAM (tested with 64GB, should work with 32GB, 16GB is likely insufficent)
+- for the raster processing, a relatively large amount of RAM (tested with 64GB at 10m resolution, 16GB at 25m resolution)
 
 ## Optional
 
@@ -174,7 +174,7 @@ When using a configuration file, remember to specify it each time you use `desig
 | `sources_designations`| path to csv file holding designation data source definitions |
 | `sources_supporting`| path to csv file holding supporting data source definitions |
 | `out_path`| path to write output .gpkg and tiffs |
-| `db_url`| [SQLAlchemy connection URL](http://docs.sqlalchemy.org/en/latest/core/engines.html#postgresql) pointing to the postgres database
+| `db_url`| [SQLAlchemy connection URL](http://docs.sqlalchemy.org/en/latest/core/engines.html#postgresql) pointing to the postgres database. The port specified in the url must match the port your database is running on - default is 5433.
 | `resolution`| resolution of output geotiff rasters (m) |
 | `n_processes`| Input layers are broken up by tile and processed in parallel, define how many parallel processes to use. (default of -1 indicates number of cores on your machine minus one)|
 
@@ -208,6 +208,23 @@ Area totals for this layer are checked. To review the checks, see the tables in 
 - `qa_summary` - check that the total area of `designations_overlaps` matches total area of BC and check restriction areas.
 - `qa_total_check` - check that the total for each restriction class adds up to the total area of BC
 
+To connect to the database, you must do so via the host and port configured (localhost & 5433 by default), using the correct parameters (db name and credentials as described above). You can connect through any frontend database application (e.g., pgAdmin, dBeaver), GIS (e.g., QGIS), or the command line tool `psql`:
+
+`$ psql -p 54343 designatedlands`
+
+If you are connecting via the `psql` command line tool, once you have connected you would run a SQL query such as:
+
+```sql
+SELECT * FROM qa_compare_outputs ORDER BY pct_diff;
+```
+
+If you want to save the qa outputs to a file you can run something like this:
+
+```sql
+\copy (SELECT * FROM qa_compare_outputs ORDER BY pct_diff) TO outputs/qa_compare_outputs.csv CSV HEADER;
+\copy (SELECT * FROM qa_summary) TO outputs/qa_summary.csv CSV HEADER;
+\copy (SELECT * FROM qa_total_check) TO outputs/qa_total_check.csv CSV HEADER;
+```
 
 ## Raster outputs
 
