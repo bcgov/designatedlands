@@ -3,7 +3,7 @@
 
 # designatedlands
 
-Combine conservation related spatial data from many sources to create a single 'Designated Lands' layer for British Columbia. Land designations that contribute to conservation are summarized in three broad categories: *Protected Lands* (further broken down into formal *Parks and Protected Areas*, and *Other Protected Lands*, *Resource Exclusion Areas* and *Spatially Managed Areas*.  Overlaps are removed such that areas with overlapping designations are assigned to the highest category.
+Combine spatial data for 40+ designations that contribute to land management to create a single 'Designated Lands' layer for British Columbia. Land designations are categorized according to the industries to which they apply (forestry, oil and gas, and mining), and summarized according to the level of restriction that applies to each industry (Full, High, Medium, Low, None).  Overlaps are removed such that areas with overlapping designations are assigned to the highest category.
 
 This is an updated version of the code, currently being run with the included `config_202-10-08.cfg` - this sets the resolution of the raster outputs to 25m.
 
@@ -309,10 +309,12 @@ mapshaper-xl \
 ls | grep -E "designatedlands_overlaps_tmp\.(shp|shx|prj|dbf|cpg)" | xargs rm
 ```
 
+<-- 
 ## Results
 
 The results of previous runs of the tool can be found on the [releases](https://github.com/bcgov/designatedlands/releases) page
 of this repository. The [`make_resources.sh`](scripts/make_resources.sh) script is used to generate the data hosted in the release.
+--> 
 
 ## License
 
