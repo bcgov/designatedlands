@@ -5,7 +5,9 @@
 
 Combine conservation related spatial data from many sources to create a single 'Designated Lands' layer for British Columbia. Land designations that contribute to conservation are summarized in three broad categories: *Protected Lands* (further broken down into formal *Parks and Protected Areas*, and *Other Protected Lands*, *Resource Exclusion Areas* and *Spatially Managed Areas*.  Overlaps are removed such that areas with overlapping designations are assigned to the highest category.
 
-A complete run of the tool was completed on Sept 21, 2017, and the results are reported on [Environmental Reporting BC](http://www.env.gov.bc.ca/soe/indicators/land/land-designations.html).
+This is an updated version of the code, currently being run with the included `config_202-10-08.cfg` - this sets the resolution of the raster outputs to 25m.
+
+A complete run of the [previous version of the tool](https://github.com/bcgov/designatedlands/releases/tag/v0.1.0) was completed May 2018, and the results are reported on [Environmental Reporting BC](http://www.env.gov.bc.ca/soe/indicators/land/land-designations.html), with the data available throught the [BC Data Catalogue](https://catalogue.data.gov.bc.ca/dataset/e0b30537-5498-437b-b668-9fafe44bf903).
 
 
 ## Requirements
