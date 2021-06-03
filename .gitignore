@@ -62,3 +62,8 @@ target/
 
 # IDE stuff
 .vscode/
+*.code-workspace
+
+# outputs
+outputs/
+rasters/
