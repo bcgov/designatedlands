@@ -212,7 +212,7 @@ Area totals for this layer are checked. To review the checks, see the tables in 
 
 To connect to the database, you must do so via the host and port configured (localhost & 5433 by default), using the correct parameters (db name and credentials as described above). You can connect through any frontend database application (e.g., pgAdmin, dBeaver), GIS (e.g., QGIS), or the command line tool `psql`:
 
-`$ psql -p 54343 designatedlands`
+`$ psql -p 5433 designatedlands`
 
 If you are connecting via the `psql` command line tool, once you have connected you would run a SQL query such as:
 
