@@ -12,7 +12,7 @@ A complete run of the tool was completed on Sept 21, 2017, and the results are r
 
 - Python >=3.7
 - GDAL (with `ogr2ogr` available at the command line) (tested with GDAL 3.0.2)
-- a PostGIS enabled PostgreSQL database (tested with PostgreSQL 11.6, PostGIS 2.5.3 via Docker container `crunchydata/crunchy-postgres-appdev`)
+- a PostGIS enabled PostgreSQL database (tested with PostgreSQL 13, scripts require PostGIS >=3.1/Geos >=3.9)
 - for the raster processing, a relatively large amount of RAM (tested with 64GB, should work with 32GB, 16GB is likely insufficent)
 
 ## Optional
@@ -43,35 +43,34 @@ This pattern should work on most OS.
     - [MacOS](https://download.docker.com/mac/stable/Docker.dmg)
     - [Windows](https://download.docker.com/win/stable/Docker%20Desktop%20Installer.exe)
 
-6. Get the database docker [container](https://hub.docker.com/r/crunchydata/crunchy-postgres-appdev):
+6. Get a Postgres docker container with a PostGIS 3.1 / Geos 3.9 enabled database:
 
-        docker pull crunchydata/crunchy-postgres-appdev
+        $ docker pull postgis/postgis:13-master
 
-7. Run the container:
+7. Run the container, create the database, add required extensions (*note*: you will have to change the line continuation characters from `\` to `^` if running the job in Windows):
 
-        docker run -d ^
-          -p 5432:5432 ^
-          -e PG_USER=designatedlands ^
-          -e PG_PASSWORD=designatedlands ^
-          -e PG_DATABASE=designatedlands ^
-          --name=dlpg ^
-          crunchydata/crunchy-postgres-appdev
+        $ docker run --name dlpg \
+          -e POSTGRES_PASSWORD=postgres \
+          -e POSTGRES_USER=postgres \
+          -e PG_DATABASE=designatedlands \
+          -p 5433:5432 \
+          -d postgis/postgis:13-master
+        $ psql -c "CREATE DATABASE designatedlands" postgres
+        $ psql -c "CREATE EXTENSION postgis"
+        $ psql -c "CREATE EXTENSION intarray"
+
 
     Running the container like this:
 
-    - runs PostgreSQL in the background as a daemon
-    - allows you to connect to it on port 5432 from localhost or 127.0.0.1
-    - sets the default user to designatedlands
-    - sets the password for this user *and* the postgres user to designatedlands
-    - creates a PostGIS and PL/R enabled database named designatedlands
+    - allows you to connect to it on port 5433 from localhost or 127.0.0.1
     - names the container dlpg
 
     Note that `designatedlands.py` uses the above database credentials as the default. If you need to change these (for example, changing the port
     to avoid conflicting with a system installation), modify the `db_url` parameter in the config file you supply to designatedlands (see below).
 
-    As long as you don't remove this container, it will retain all the data you put in it. To start it up again:
+    As long as you don't remove this container, it will retain all the data you put in it. If you have shut down Docker or the container, you can start it up again with this command:
 
-          docker start dlpg
+          $ docker start dlpg
 
 
 ## Usage
@@ -157,7 +156,15 @@ The files `sources_designations.csv` and `sources_supporting.csv` define all sou
 If required, you can modify the general configuration of designatedlands when running the commands above by supplying the path to a config file as a command line argument.
 Note that the config file does not have to contain all parameters, you only need to include those where you do not wish to use the default values.
 
-See example [`designateldands_sample_config.cfg`](designatedlands_sample_config.cfg) listing all configuration parameters.
+An example configuration file is included [`designateldands_sample_config.cfg`](designatedlands_sample_config.cfg), listing all available configuration parameters, setting the raster resolution to 25m, and using only 4 cores.
+
+When using a configuration file, remember to specify it each time you use `designatedlands.py`, for example:
+
+    $ python designatedlands.py download designatedlands_sample_config.cfg
+    $ python designatedlands.py preprocess designatedlands_sample_config.cfg
+    $ python designatedlands.py process-vector designatedlands_sample_config.cfg
+    $ python designatedlands.py process-raster designatedlands_sample_config.cfg
+    $ python designatedlands.py dump designatedlands_sample_config.cfg
 
 | KEY       | VALUE                                            |
 |-----------|--------------------------------------------------|
@@ -168,6 +175,48 @@ See example [`designateldands_sample_config.cfg`](designatedlands_sample_config.
 | `db_url`| [SQLAlchemy connection URL](http://docs.sqlalchemy.org/en/latest/core/engines.html#postgresql) pointing to the postgres database
 | `resolution`| resolution of output geotiff rasters (m) |
 | `n_processes`| Input layers are broken up by tile and processed in parallel, define how many parallel processes to use. (default of -1 indicates number of cores on your machine minus one)|
+
+
+
+
+## Vector outputs
+
+The `designatedlands.py dump` command writes two layers to output geopackage `outputs/designatedlands.gpkg`:
+
+##### 1. `designations_overlapping`
+
+Each individual designation polygon is clipped to the terrestrial boundary of BC, repaired if necessary, then loaded to this layer otherwise unaltered.
+Where designations overlap, output polygons will overlap. Overlaps occur primarily between different designations, but are also present within the same designation.
+
+
+##### 2. `designations_planarized`
+
+Above `designations_overlapping` is further processed to remove overlaps and create a planarized output.
+Where overlaps occur, they are noted in the attributes as semi-colon separated values. For example, a polygon where a `uwr_no_harvest` designation overlaps with a `land_act_reserves_17` designation will have values like this:
+
+| designation | source_id | source_name | forest_restrictions | mine_restrictions | og_restrictions |
+|-------------|-----------|-------------|-------------|-----------|-------------|
+|`uwr_no_harvest;land_act_reserves_17`|`137810341;964007`|`u-3-005;SEC 17 DESIGNATED USE AREA`|`4;0` | `2;1` | `0;0`
+
+The output restriction columns (`forest_restriction_max`,`mine_restriction_max`,`og_restriction_max`) are assigned the value of the highest restriction present within the polygon for the given restriction type.
+
+Area totals for this layer are checked. To review the checks, see the tables in the postgres db:
+
+- `qa_compare_outputs` - reports on total area of each designation and the difference between `designations_overlapping` and `designations_planarized`. Any differences should be due to same source overlaps.
+- `qa_summary` - check that the total area of `designations_overlaps` matches total area of BC and check restriction areas.
+- `qa_total_check` - check that the total for each restriction class adds up to the total area of BC
+
+
+## Raster outputs
+
+Four output rasters are created:
+
+1. `designatedlands.tif` - output designations. In cases of overlap, the designation with the highest `process_order` is retained
+2. `forest_restriction.tif` - output forest restriction levels
+3. `mine_restriction.tif` - output mine restriction levels
+4. `og_restriction.tif` - output oil and gas restriction levels
+
+Raster attribute tables are available for each tif.
 
 
 ## Overlay

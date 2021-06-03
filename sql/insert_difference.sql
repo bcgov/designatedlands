@@ -57,7 +57,7 @@ SELECT
   id,
   $columns,
   map_tile,
-  st_multi(st_union(geom)) AS geom
+  (ST_Dump(st_union(geom))).geom AS geom
 FROM
     (SELECT
        i.id as id,
@@ -82,7 +82,7 @@ non_intersections AS
   i.id,
   $columns,
   i.map_tile,
-  ST_Multi(i.geom) as geom
+  i.geom
 FROM src_clip i
 LEFT JOIN all_intersects a ON i.id = a.input_id
 WHERE a.input_id IS null)
@@ -96,7 +96,8 @@ WHERE a.input_id IS null)
 SELECT
   $columns,
   d.map_tile,
-  ST_Safe_Repair(
+  (ST_Dump(
+    ST_Safe_Repair(
     ST_Snap(
       (ST_Dump(
         ST_Safe_Repair(
@@ -107,20 +108,20 @@ SELECT
         )).geom,
       t.geom, .01
     )
-  ) as geom
+  ))).geom as geom
 FROM difference d
 INNER JOIN tiles t ON d.map_tile = t.map_tile
-WHERE GeometryType(d.geom) = 'MULTIPOLYGON'
+WHERE ST_Dimension(d.geom) = 2
 UNION ALL
 SELECT
   $columns,
   ni.map_tile,
-  ST_Safe_Repair(
+  (ST_Dump(ST_Safe_Repair(
     ST_Snap(
       (ST_Dump(
         ST_Safe_Repair(ni.geom)
         )).geom,
       t.geom, .01)
-  ) as geom
+  ))).geom as geom
 FROM non_intersections ni
 INNER JOIN tiles t ON ni.map_tile = t.map_tile
