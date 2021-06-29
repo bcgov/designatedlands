@@ -188,7 +188,21 @@ The `designatedlands.py dump` command writes two layers to output geopackage `ou
 ##### 1. `designations_overlapping`
 
 Each individual designation polygon is clipped to the terrestrial boundary of BC, repaired if necessary, then loaded to this layer otherwise unaltered.
-Where designations overlap, output polygons will overlap. Overlaps occur primarily between different designations, but are also present within the same designation.
+Where designations overlap, output polygons will overlap. Overlaps occur primarily between different designations, but are also present within the same designation. See the following table for the structure of this layer:
+
+<!--
+Run the following to get the markdown table below on your clipboard, then paste it here. 
+Requires csvtomd tool (https://github.com/mplewis/csvtomd; `brew install csvtomd` or `pip install csvtomd`), and 
+the designatedlands db to be running on 5433 (`docker start dlpg`):
+
+psql -p 5433 designatedlands -c \
+ '\copy (SELECT * FROM designations_overlapping LIMIT 1) TO STDOUT CSV HEADER' | \
+  rev | cut -d, -f 2- | rev | csvtomd | pbcopy 
+-->
+
+designations_overlapping_id  |  process_order  |  designation                       |  source_id  |  source_name        |  forest_restriction  |  og_restriction  |  mine_restriction  |  map_tile
+-----------------------------|-----------------|------------------------------------|-------------|---------------------|----------------------|------------------|--------------------|----------
+1                            |  1              |  private_conservation_lands_admin  |  10001      |  Arrow Lakes (ACQ)  |  3                   |  1               |  1                 |  082K011
 
 
 ##### 2. `designations_planarized`
