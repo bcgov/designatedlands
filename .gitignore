@@ -67,3 +67,5 @@ target/
 # outputs
 outputs/
 rasters/
+
+scratch/
