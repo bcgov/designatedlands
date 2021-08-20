@@ -288,6 +288,7 @@ class DesignatedLands(object):
 
         # define valid restriction classes and assign raster values
         self.restriction_lookup = {
+            "PROTECTED": 5,
             "FULL": 4,
             "HIGH": 3,
             "MEDIUM": 2,
