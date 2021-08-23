@@ -30,6 +30,7 @@ import tarfile
 import tempfile
 import urllib.request
 import zipfile
+from datetime import date
 
 import click
 from cligj import verbose_opt, quiet_opt
@@ -519,7 +520,12 @@ class DesignatedLands(object):
                         source["src"],
                     ]
                     if source["query"]:
-                        cmd = cmd + ["--query", source["query"]]
+                        qry = source["query"]
+                        # if query in sources has a {currdate} placeholder for 
+                        # relative date queries, replace with the current date
+                        currdate = date.today().isoformat()
+                        qry = qry.format(currdate=currdate)
+                        cmd = cmd + ["--query", qry]
                     LOG.info(" ".join(cmd))
                     subprocess.run(cmd)
 
