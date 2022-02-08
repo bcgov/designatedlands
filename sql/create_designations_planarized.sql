@@ -14,13 +14,22 @@ WITH src AS
   WHERE map_tile LIKE %s
 ),
 
--- convert overlapping designatedlands polys to lines
-lines AS
+-- dump poly rings and convert to lines
+rings as
 (
   SELECT
     map_tile,
-    ST_Union(ST_ExteriorRing(geom)) AS geom
+    ST_Exteriorring((ST_DumpRings(geom)).geom) AS geom
   FROM src
+),
+
+-- node the lines with st_union and dump to singlepart lines
+lines as
+(
+  SELECT
+    map_tile,
+    (st_dump(st_union(geom, .1))).geom as geom
+  FROM rings
   GROUP BY map_tile
 ),
 
