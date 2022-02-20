@@ -45,7 +45,7 @@ This pattern should work on most OS.
     - [MacOS](https://download.docker.com/mac/stable/Docker.dmg)
     - [Windows](https://download.docker.com/win/stable/Docker%20Desktop%20Installer.exe)
 
-6. Get a Postgres docker container with a PostGIS 3.1 / Geos 3.9 enabled database:
+6. Get a postgres docker image with PostGIS >=3.1 and GEOS >=3.9:
 
         $ docker pull postgis/postgis:14-3.2
 
@@ -127,11 +127,11 @@ Options:
 
 ## sources csv files
 
-The files `sources_designations.csv` and `sources_supporting.csv` define all source layers and how they are processed. Edit these tables to customize the analysis.  Columns are noted below. All columns are present in `sources_designations.csv`, designation/hierarchy/restriction columns are not included in `sources_supporting.csv` but the remaining column definitions are identical. Note that order of rows in the files is not important, order your designations by populating the **hierarchy** column with integer values. Do not include a hierarchy integer for designations that are to be excluded (`exclude = T`)
+The files `sources_designations.csv` and `sources_supporting.csv` define all source layers and how they are processed. Edit these tables to customize the analysis.  Columns are noted below. All columns are present in `sources_designations.csv`, but `designation`/`process_order`/`restriction` columns are not included in `sources_supporting.csv` - but the remaining column definitions are identical. Note that order of rows in these files is not important, order your designations by populating the **process_order** column with integer values. Do not include a `process_order` integer for designations that are to be excluded (`exclude = T`)
 
 | COLUMN                 | DESCRIPTION                                                                                                                                                                            |
 |------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| **hierarchy**              | An integer defining the order in which to overlay layers. In areas where sources overlap the source with the higher hierarchy value will take precedence. Equivalent hierarchy values for different layers are valid. Sources required for processing but not included in the designated lands hierarchy (such as tiling, boundary, or preprocessing layers) should be give a hierarchy value of `0`. |
+| **process_order**              | An integer defining the order in which to overlay layers.  |
 | **exclude**              | A value of `T` will exclude the source from all operations |
 | **manual_download**        | A value of `T` indicates that a direct download url is not available for the data. Download these sources manually to the downloads folder and ensure that value given for **file_in_url** matches the name of the file in the download folder                                                            |
 | **name**                   | Full name of the designated land category                                                                                                                                                |
@@ -152,6 +152,13 @@ The files `sources_designations.csv` and `sources_supporting.csv` define all sou
 | **notes**                  | Misc notes related to layer                                                                                                                                                            |
 | **license**                | The license under which the data is distrubted.
 
+
+### Supported formats / data validation
+
+Non-BCGW data loads from url will generally work for any vector format that is supported by GDAL. Note however:
+
+- shapefile urls must be zip archives that include all required shapefile sidecar files (dbf, prj, etc)
+- `designatedlands` presumes that input data are valid and of types `POLYGON` or `MULTIPOLYGON`
 
 ## Configuration
 
@@ -342,16 +349,14 @@ mapshaper-xl \
 ls | grep -E "designatedlands_overlaps_tmp\.(shp|shx|prj|dbf|cpg)" | xargs rm
 ```
 
-<-- 
 ## Results
 
 The results of previous runs of the tool can be found on the [releases](https://github.com/bcgov/designatedlands/releases) page
 of this repository. The [`make_resources.sh`](scripts/make_resources.sh) script is used to generate the data hosted in the release.
---> 
 
 ## License
 
-    Copyright 2017 Province of British Columbia
+    Copyright 2022 Province of British Columbia
 
     Licensed under the Apache License, Version 2.0 (the "License");
     you may not use this file except in compliance with the License.
@@ -369,10 +374,4 @@ This repository is maintained by [Environmental Reporting BC](http://www2.gov.bc
 
 ## Credits
 
-Strategies for dealing with PostGIS precision issues:
-
-- [lostgis](https://github.com/gojuno/lostgis)
-- [buffering](https://gis.stackexchange.com/questions/101639/postgis-st-buffer-breaks-because-of-no-forward-edges)
-- [merging](https://gis.stackexchange.com/questions/31895/joining-lots-of-small-polygons-to-form-larger-polygon-using-postgis)
-- [slivers](https://gis.stackexchange.com/questions/198115/how-to-delete-the-small-gaps-slivers-between-polygons-after-merging-adjacent-p)
-- [prevent exceptions](http://www.tsusiatsoftware.net/jts/jtsfaq/jtsfaq.html#D9)
+[Straightforward overlay queries](https://blog.cleverelephant.ca/2019/07/postgis-overlays.html) now practical with complex data thanks to PostGIS 3.1/GEOS 3.9.
