@@ -47,7 +47,7 @@ This pattern should work on most OS.
 
 6. Get a Postgres docker container with a PostGIS 3.1 / Geos 3.9 enabled database:
 
-        $ docker pull postgis/postgis:13-master
+        $ docker pull postgis/postgis:14-3.2
 
 7. Run the container, create the database, add required extensions (*note*: you will have to change the line continuation characters from `\` to `^` if running the job in Windows):
 
@@ -56,7 +56,7 @@ This pattern should work on most OS.
           -e POSTGRES_USER=postgres \
           -e PG_DATABASE=designatedlands \
           -p 5433:5432 \
-          -d postgis/postgis:13-master
+          -d postgis/postgis:14-3.2
         $ psql -c "CREATE DATABASE designatedlands" postgres
         $ psql -c "CREATE EXTENSION postgis"
         $ psql -c "CREATE EXTENSION intarray"
