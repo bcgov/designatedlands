@@ -554,6 +554,7 @@ class DesignatedLands(object):
             file = os.path.join(self.config["dl_path"], source["file_in_url"])
             if not os.path.exists(file):
                 raise Exception(file + " does not exist, download it manually")
+            table_name = "public." + source["src"]
             # drop table if exists
             if overwrite:
                 self.db.execute(f"DROP TABLE IF EXISTS {table_name}")
@@ -563,7 +564,6 @@ class DesignatedLands(object):
                     in_layer=source["layer_in_file"],
                     out_layer=source["src"],
                     sql=source["query"],
-                    schema="designatedlands",
                 )
             else:
                 LOG.info(source["src"] + " already loaded.")
