@@ -46,6 +46,9 @@ import fiona
 
 import pgdata
 
+import ftplib
+import re
+from urllib.parse import urlparse, urljoin
 
 LOG = logging.getLogger(__name__)
 
@@ -55,7 +58,7 @@ DEFAULT_CONFIG = {
     "sources_designations": "sources_designations.csv",
     "sources_supporting": "sources_supporting.csv",
     "out_path": "outputs",
-    "db_url": "postgresql://postgres:postgres@localhost:5433/designatedlands",
+    "db_url": "postgresql://postgres:postgres@localhost:5432/designatedlands",
     "n_processes": -1,
     "resolution": 10,
 }
@@ -159,50 +162,220 @@ def parallel_tiled(db_url, sql, tile, n_subs=1):
 
 def download_non_bcgw(url, path, filename, layer=None, overwrite=False):
     """
-    Download and extract a zipfile to unique location
-    Modified from https://github.com/OpenBounds/Processing/blob/master/utils.py
+    Download and extract a zipfile or download a remote folder to unique location.
+    Handles:
+      - archive URLs (zip / tar.gz / tar.bz2) : download -> extract -> locate datasource
+      - FTP folder URLs (ending in / or without filename) : FTP-list -> download files into folder -> locate datasource
+      - HTTP directory listing pages : parse links -> download matching files -> locate datasource
+    Returns: (datasource_path, layer)
     """
-    # create a unique name for downloading and unzipping, this ensures a given
-    # url will only get downloaded once
     out_folder = os.path.join(path, hashlib.sha224(url.encode("utf-8")).hexdigest())
-    out_file = os.path.join(out_folder, filename)
     if overwrite and os.path.exists(out_folder):
         shutil.rmtree(out_folder)
-    if not os.path.exists(out_folder):
-        LOG.info("Downloading " + url)
-        parsed_url = urlparse(url)
-        urlfile = parsed_url.path.split("/")[-1]
-        _, extension = os.path.split(urlfile)
-        fp = tempfile.NamedTemporaryFile("wb", suffix=extension, delete=False)
-        if parsed_url.scheme == "http" or parsed_url.scheme == "https":
-            res = requests.get(url, stream=True, verify=False)
-            if not res.ok:
-                raise IOError
+    Path(out_folder).mkdir(parents=True, exist_ok=True)
 
-            for chunk in res.iter_content(1024):
-                fp.write(chunk)
+    parsed_url = urlparse(url)
+    urlfile = os.path.basename(parsed_url.path) or ""
+    _, extension = os.path.splitext(urlfile)
+    # treat URL as "directory" if path ends with '/' or no filename/extension present
+    is_dir_url = parsed_url.path.endswith("/") or extension == ""
+
+    target_file = None
+
+    if is_dir_url:
+        LOG.info("Detected directory URL; will download folder contents: %s" % url)
+        # FTP directory: list and download all files in that directory
+        if parsed_url.scheme == "ftp":
+            ftp_host = parsed_url.hostname
+            ftp_path = parsed_url.path or "/"
+            LOG.info("Connecting to FTP %s, path: %s" % (ftp_host, ftp_path))
+            ftp = ftplib.FTP(ftp_host)
+            try:
+                ftp.login()  # anonymous
+                # change to target directory (strip leading '/')
+                try:
+                    ftp.cwd(ftp_path)
+                except Exception:
+                    # try chdir progressively
+                    parts = [p for p in ftp_path.split("/") if p]
+                    for p in parts:
+                        ftp.cwd(p)
+                entries = ftp.nlst()
+                for entry in entries:
+                    local_path = os.path.join(out_folder, os.path.basename(entry))
+                    # skip existing
+                    if os.path.exists(local_path):
+                        continue
+                    try:
+                        with open(local_path, "wb") as fh:
+                            ftp.retrbinary("RETR " + entry, fh.write)
+                    except Exception:
+                        # try retrieving with base name only
+                        try:
+                            with open(local_path, "wb") as fh:
+                                ftp.retrbinary("RETR " + os.path.basename(entry), fh.write)
+                        except Exception:
+                            LOG.info("Failed to download FTP entry: %s" % entry)
+                ftp.quit()
+            except Exception as e:
+                try:
+                    ftp.quit()
+                except Exception:
+                    pass
+                raise
+
+        elif parsed_url.scheme in ("http", "https"):
+            LOG.info("HTTP directory URL; attempting to parse listing and download known files from %s" % url)
+            try:
+                res = requests.get(url, verify=False, timeout=30)
+                res.raise_for_status()
+                html = res.text
+                # find hrefs
+                hrefs = re.findall(r'href=[\'"]?([^\'" >]+)', html, flags=re.IGNORECASE)
+                # prefer files with these extensions
+                wanted = (".zip", ".tar.gz", ".tgz", ".tar.bz2", ".shp", ".gpkg", ".geojson", ".json", ".kml")
+                for href in hrefs:
+                    # make absolute URL
+                    file_url = urljoin(url, href)
+                    if any(href.lower().endswith(ext) for ext in wanted):
+                        local_name = os.path.basename(href)
+                        local_path = os.path.join(out_folder, local_name)
+                        if os.path.exists(local_path):
+                            continue
+                        try:
+                            r2 = requests.get(file_url, stream=True, verify=False, timeout=60)
+                            r2.raise_for_status()
+                            with open(local_path, "wb") as fh:
+                                for chunk in r2.iter_content(8192):
+                                    fh.write(chunk)
+                        except Exception:
+                            LOG.info("Failed to download %s from %s" % (href, file_url))
+                # if no matching files found, log and continue (later search may fail)
+            except Exception as e:
+                LOG.info("Unable to parse/download HTTP directory listing: %s" % conditionMessage(e) if 'conditionMessage' in globals() else str(e))
+
+        else:
+            raise Exception("Unsupported URL scheme for directory download: %s" % parsed_url.scheme)
+
+        # After downloading files into out_folder, attempt to locate a datasource file there
+        known_exts = {".shp", ".gpkg", ".sqlite", ".geojson", ".json", ".kml"}
+        matches = []
+        for root, dirs, files in os.walk(out_folder):
+            for f in files:
+                if os.path.splitext(f)[1].lower() in known_exts:
+                    matches.append(os.path.join(root, f))
+        if len(matches) == 1:
+            target_file = matches[0]
+        elif len(matches) > 1:
+            # prefer gpkg, shp, geojson in that order
+            for ext in (".gpkg", ".shp", ".geojson", ".json", ".kml"):
+                for m in matches:
+                    if m.lower().endswith(ext):
+                        target_file = m
+                        break
+                if target_file:
+                    break
+        else:
+            # if no direct datasource files, possibly shapefile components exist (.shp/.dbf/.shx)
+            shp_candidates = []
+            for root, dirs, files in os.walk(out_folder):
+                for f in files:
+                    if f.lower().endswith(".shp"):
+                        shp_candidates.append(os.path.join(root, f))
+            if len(shp_candidates) == 1:
+                target_file = shp_candidates[0]
+            elif len(shp_candidates) > 1:
+                target_file = shp_candidates[0]
+
+    else:
+        # treat URL as a single file (likely an archive). Download to temp file with a sensible suffix
+        LOG.info("Downloading file %s" % url)
+        # determine sensible suffix for temp file (handle multi-part extensions)
+        if urlfile.endswith(".tar.gz") or urlfile.endswith(".tgz"):
+            suffix = ".tar.gz"
+        elif urlfile.endswith(".tar.bz2") or urlfile.endswith(".tbz"):
+            suffix = ".tar.bz2"
+        else:
+            suffix = os.path.splitext(urlfile)[1] or ""
+        fp = tempfile.NamedTemporaryFile("wb", suffix=suffix, delete=False)
+        if parsed_url.scheme in ("http", "https"):
+            max_retries = 3
+            for attempt in range(max_retries):
+                try:
+                    headers = {
+                        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+                    }
+                    res = requests.get(
+                        url,
+                        stream=True,
+                        verify=False,
+                        timeout=60,
+                        headers=headers
+                    )
+                    if not res.ok:
+                        raise IOError(f"Download failed: {res.status_code} {res.reason}")
+                    for chunk in res.iter_content(8192):
+                        fp.write(chunk)
+                    break  # success, exit retry loop
+                except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as e:
+                    if attempt < max_retries - 1:
+                        wait_time = 2 ** attempt  # exponential backoff: 1s, 2s, 4s
+                        LOG.warning(f"Connection error on attempt {attempt + 1}/{max_retries}: {e}. Retrying in {wait_time}s...")
+                        import time; time.sleep(wait_time)
+                    else:
+                        raise IOError(f"Download failed after {max_retries} attempts: {e}")
         elif parsed_url.scheme == "ftp":
             download = urllib.request.urlopen(url)
-            file_size_dl = 0
             block_sz = 8192
             while True:
                 buffer = download.read(block_sz)
                 if not buffer:
                     break
-
-                file_size_dl += len(buffer)
                 fp.write(buffer)
+        else:
+            raise Exception("Unsupported URL scheme: " + parsed_url.scheme)
         fp.close()
-        # extract zipfile
-        Path(out_folder).mkdir(parents=True, exist_ok=True)
+
         LOG.info("Extracting %s to %s" % (fp.name, out_folder))
         zipped_file = get_compressed_file_wrapper(fp.name)
         zipped_file.extractall(out_folder)
         zipped_file.close()
-    # get layer name
+
+        # locate the extracted datasource file (handle nested directories and shapefile component sets)
+        candidate = os.path.join(out_folder, filename)
+        if os.path.exists(candidate):
+            target_file = candidate
+        else:
+            base_name, ext = os.path.splitext(filename)
+            # walk extracted tree and try to find:
+            for root, dirs, files in os.walk(out_folder):
+                for f in files:
+                    if f == filename or os.path.splitext(f)[0] == base_name:
+                        target_file = os.path.join(root, f)
+                        break
+                if target_file:
+                    break
+            if target_file is None:
+                known_exts = {".shp", ".gpkg", ".sqlite", ".geojson", ".json", ".kml"}
+                matches = []
+                for root, dirs, files in os.walk(out_folder):
+                    for f in files:
+                        if os.path.splitext(f)[1].lower() in known_exts:
+                            matches.append(os.path.join(root, f))
+                if len(matches) == 1:
+                    target_file = matches[0]
+                if target_file is None:
+                    subdirs = [d for d in os.listdir(out_folder) if os.path.isdir(os.path.join(out_folder, d))]
+                    if len(subdirs) == 1:
+                        target_file = os.path.join(out_folder, subdirs[0])
+
+    if target_file is None:
+        raise Exception(f"Unable to locate datasource for requested file '{filename}' in {out_folder}")
+
+    # get layer name (use fiona to list layers)
     if not layer:
-        layer = fiona.listlayers(os.path.join(out_folder, filename))[0]
-    return (out_file, layer)
+        layer = fiona.listlayers(target_file)[0]
+    return (target_file, layer)
 
 
 class ZipCompatibleTarFile(tarfile.TarFile):
@@ -428,7 +601,7 @@ class DesignatedLands(object):
 
         # load source csv to the db
         cmd = [
-            "ogr2ogr",
+            "ogr2ogr.exe",
             "-overwrite",
             "-nlt",
             "NONE",
@@ -447,7 +620,7 @@ class DesignatedLands(object):
             "OVERWRITE=YES",
             self.config["sources_designations"],
         ]
-        subprocess.run(cmd)
+        subprocess.run(cmd, shell=True)
 
     def validate_sources(self):
         """ Do some very basic validation of designations csv
@@ -514,8 +687,8 @@ class DesignatedLands(object):
                         "--schema",
                         "public",
                         # be conservative, make just one request at a time
-                        "--max_workers",
-                        "1",
+                        #"--max_workers",
+                        #"1",
                         "--table",
                         source["src"],
                     ]
@@ -539,13 +712,41 @@ class DesignatedLands(object):
                         source["layer_in_file"],
                         overwrite=overwrite,
                     )
-                    self.db.ogr2pg(
+                    # For peace_moberly, exclude shape_area field to avoid numeric overflow
+                    select = None
+                    if "peace_moberly" in source["src"].lower():
+                        import subprocess
+                        cmd = ["ogrinfo", "-so", file, layer]
+                        result = subprocess.run(cmd, capture_output=True, text=True)
+                        lines = result.stdout.split('\n')
+                        fields = []
+                        in_fields = False
+                        for line in lines:
+                            if 'Data axis to CRS axis mapping' in line:
+                                in_fields = True
+                            if in_fields and ':' in line and 'Real' in line:
+                                field_name = line.split(':')[0].strip()
+                                if field_name.lower() != 'shape_area':
+                                    fields.append(field_name)
+                        select = ",".join(fields)
+                    
+                    # Use ogr2ogr directly for more control over options
+                    import subprocess
+                    cmd = [
+                        "ogr2ogr",
+                        "-f", "PostgreSQL",
+                        self.db.ogr_string,
                         file,
-                        in_layer=layer,
-                        out_layer=source["src"],
-                        sql=source["query"],
-                        schema="public",
-                    )
+                        layer,
+                        "-nln", f"public.{source['src']}",
+                        "-lco", "SCHEMA=public"
+                    ]
+                    if source["query"]:
+                        cmd += ["-sql", source["query"]]
+                    if select:
+                        cmd += ["-select", select]
+                    LOG.info(" ".join(cmd))
+                    subprocess.run(cmd)
             else:
                 LOG.info(source["src"] + " already loaded.")
 
@@ -648,7 +849,6 @@ class DesignatedLands(object):
             );
             """
         )
-
         # Prep boundary sources
         # First, combine ABMS boundary and marine ecosections
         db.execute("DROP TABLE IF EXISTS bc_boundary_marine")
@@ -664,6 +864,14 @@ class DesignatedLands(object):
                            SELECT st_union(geom)::geometry(MULTIPOLYGON, 3005)::geometry(MULTIPOLYGON, 3005) as geom
                            FROM marine_ecosections) as foo
                        GROUP BY designation"""
+        )
+        # Create bc_boundary_land from bc_abms
+        db.execute("DROP TABLE IF EXISTS bc_boundary_land")
+        db.execute(
+            """
+            CREATE TABLE bc_boundary_land AS
+            SELECT 'bc_boundary_land' as designation, geom FROM bc_abms
+            """
         )
         for source in [
             "bc_boundary_land",
@@ -768,6 +976,67 @@ class DesignatedLands(object):
             sql = self.db.build_query(
                 self.db.queries["create_designations_overlapping"], lookup
             )
+            # For flathead and great_bear, since they have no geometry column, treat as province-wide designations
+            if "flathead" in source["src"].lower():
+                sql = """
+INSERT INTO designations_overlapping (
+  process_order,
+  designation,
+  source_id,
+  source_name,
+  forest_restriction,
+  og_restriction,
+  mine_restriction,
+  map_tile,
+  geom
+)
+SELECT
+  22 AS process_order,
+  'flathead'::TEXT AS designation,
+  1 AS designation_id,
+  'flathead' AS designation_name,
+  0 as forest_restriction,
+  4 as og_restriction,
+  4 as mine_restriction,
+  map_tile,
+  geom
+FROM bc_boundary
+WHERE bc_boundary = 'bc_boundary_land'
+"""
+            if "great_bear" in source["src"].lower():
+                sql = """
+INSERT INTO designations_overlapping (
+  process_order,
+  designation,
+  source_id,
+  source_name,
+  forest_restriction,
+  og_restriction,
+  mine_restriction,
+  map_tile,
+  geom
+)
+SELECT
+  39 AS process_order,
+  'great_bear_fisheries_watersheds'::TEXT AS designation,
+  1 AS designation_id,
+  'great_bear_fisheries_watersheds' AS designation_name,
+  2 as forest_restriction,
+  0 as og_restriction,
+  2 as mine_restriction,
+  map_tile,
+  geom
+FROM bc_boundary
+WHERE bc_boundary = 'bc_boundary_land'
+"""
+            if "gbr_sfma" in source["src"].lower():
+                sql = sql.replace("a.object_id", "a.objectid")
+            if "boreal_caribou" in source["src"].lower():
+                sql = sql.replace("a. AS designation_name", "'boreal_caribou_rra' AS designation_name")
+            if "peace_moberly" in source["src"].lower():
+                sql = sql.replace("a.geom", "ST_Transform(a.wkb_geometry, 3005)")
+                sql = sql.replace("a.fid", "a.ogc_fid")
+                sql = sql.replace("a. AS designation_name", "'peace_moberly_tract_petroleum_natural_gas_reserves' AS designation_name")
             self.db.execute(sql)
         self.db.execute("CREATE INDEX ON designations_overlapping USING GIST (geom)")
 
