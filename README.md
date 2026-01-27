@@ -41,13 +41,9 @@ This pattern should work on most OS.
         $ conda env create -f environment.yml
         $ conda activate designatedlands
 
-5. Download and install Docker using the appropriate link for your OS:
-    - [MacOS](https://download.docker.com/mac/stable/Docker.dmg)
-    - [Windows](https://download.docker.com/win/stable/Docker%20Desktop%20Installer.exe)
+5. Download and install Docker Desktop [Windows & MacOS](https://www.docker.com/get-started/)
 
-6. Get a postgres docker image with PostGIS >=3.1 and GEOS >=3.9:
-
-        $ docker pull postgis/postgis:14-3.2
+6. Run Docker Desktop
 
 7. Run the container, create the database, add required extensions (*note*: you will have to change the line continuation characters from `\` to `^` if running the job in Windows):
 
@@ -64,15 +60,13 @@ This pattern should work on most OS.
 
     Running the container like this:
 
-    - allows you to connect to it on port 5433 from localhost or 127.0.0.1
+    - allows you to connect to it on port 5432 from localhost or 127.0.0.1
     - names the container dlpg
 
     Note that `designatedlands.py` uses the above database credentials as the default. If you need to change these (for example, changing the port
     to avoid conflicting with a system installation), modify the `db_url` parameter in the config file you supply to designatedlands (see below).
 
-    As long as you don't remove this container, it will retain all the data you put in it. If you have shut down Docker or the container, you can start it up again with this command:
-
-          $ docker start dlpg
+    As long as you don't remove this container, it will retain all the data you put in it. 
 
 
 ## Usage
@@ -181,7 +175,7 @@ When using a configuration file, remember to specify it each time you use `desig
 | `sources_designations`| path to csv file holding designation data source definitions |
 | `sources_supporting`| path to csv file holding supporting data source definitions |
 | `out_path`| path to write output .gpkg and tiffs |
-| `db_url`| [SQLAlchemy connection URL](http://docs.sqlalchemy.org/en/latest/core/engines.html#postgresql) pointing to the postgres database. The port specified in the url must match the port your database is running on - default is 5433.
+| `db_url`| [SQLAlchemy connection URL](http://docs.sqlalchemy.org/en/latest/core/engines.html#postgresql) pointing to the postgres database. The port specified in the url must match the port your database is running on - default is 5432.
 | `resolution`| resolution of output geotiff rasters (m) |
 | `n_processes`| Input layers are broken up by tile and processed in parallel, define how many parallel processes to use. (default of -1 indicates number of cores on your machine minus one)|
 
@@ -200,9 +194,9 @@ Where designations overlap, output polygons will overlap. Overlaps occur primari
 <!--
 Run the following to get the markdown table below on your clipboard, then paste it here. 
 Requires csvtomd tool (https://github.com/mplewis/csvtomd; `brew install csvtomd` or `pip install csvtomd`), and 
-the designatedlands db to be running on 5433 (`docker start dlpg`):
+the designatedlands db to be running on 5432 (`docker start dlpg`):
 
-psql -p 5433 designatedlands -c \
+psql -p 5432 designatedlands -c \
  '\copy (SELECT * FROM designations_overlapping LIMIT 1) TO STDOUT CSV HEADER' | \
   rev | cut -d, -f 2- | rev | csvtomd | pbcopy 
 -->
@@ -231,9 +225,9 @@ Area totals for this layer are checked. To review the checks, see the tables in 
 - `qa_summary` - check that the total area of `designations_overlaps` matches total area of BC and check restriction areas.
 - `qa_total_check` - check that the total for each restriction class adds up to the total area of BC
 
-To connect to the database, you must do so via the host and port configured (localhost & 5433 by default), using the correct parameters (db name and credentials as described above). You can connect through any frontend database application (e.g., pgAdmin, dBeaver), GIS (e.g., QGIS), or the command line tool `psql`:
+To connect to the database, you must do so via the host and port configured (localhost & 5432 by default), using the correct parameters (db name and credentials as described above). You can connect through any frontend database application (e.g., pgAdmin, dBeaver), GIS (e.g., QGIS), or the command line tool `psql`:
 
-`$ psql -p 5433 designatedlands`
+`$ psql -p 5432 designatedlands`
 
 If you are connecting via the `psql` command line tool, once you have connected you would run a SQL query such as:
 
@@ -241,12 +235,12 @@ If you are connecting via the `psql` command line tool, once you have connected 
 SELECT * FROM qa_compare_outputs ORDER BY pct_diff;
 ```
 
-If you want to save the qa outputs to a file you can run something like this:
+If you want to save the qa outputs to a file you can run something like this from your command line (note that the output folder must already exist):
 
-```sql
-\copy (SELECT * FROM qa_compare_outputs ORDER BY pct_diff) TO outputs/qa_compare_outputs.csv CSV HEADER;
-\copy (SELECT * FROM qa_summary) TO outputs/qa_summary.csv CSV HEADER;
-\copy (SELECT * FROM qa_total_check) TO outputs/qa_total_check.csv CSV HEADER;
+```
+$ psql -p 5432 -U postgres -d designatedlands -c "\copy (SELECT * FROM qa_compare_outputs ORDER BY pct_diff DESC) TO 'outputs/qa_compare_outputs.csv' CSV HEADER;"
+$ psql -p 5432 -U postgres -d designatedlands -c "\copy (SELECT * FROM qa_summary ORDER BY row) TO 'outputs/qa_summary.csv' CSV HEADER;
+$ psql -p 5432 -U postgres -d designatedlands -c "\copy (SELECT * FROM qa_total_check) TO 'outputs/qa_total_check.csv' CSV HEADER;"
 ```
 
 ## Raster outputs
@@ -308,18 +302,21 @@ npm install -g mapshaper
 ogr2ogr \
   designatedlands_tmp.shp \
   -sql "SELECT
-         designatedlands_id as dl_id,
-         designation as designat,
-         bc_boundary as bc_bound,
-         category,
+         designations_planarized_id as dl_id, \
+         designation as designat, \
+         forest_restrictions as for_restr, \
+         mine_restrictions as min_restr, \
+         og_restrictions as og_restr, \
+         forest_restriction_max as for_restrm, \
+         mine_restriction_max as min_restrm, \ 
+         og_restriction_max as og_restrm, \
          geom
-        FROM designatedlands" \
-  designatedlands.gpkg \
+        FROM designations_planarized" \
+  outputs/designatedlands.gpkg \
   -lco ENCODING=UTF-8 &&
 mapshaper-xl \
   designatedlands_tmp.shp snap \
-  -dissolve designat,bc_bound \
-    copy-fields=category \
+  -dissolve designat \
   -explode \
   -o designatedlands_clean.shp &&
 ls | grep -E "designatedlands_tmp\.(shp|shx|prj|dbf|cpg)" | xargs rm
@@ -330,20 +327,18 @@ Do the same for the overlaps file
 ogr2ogr \
   designatedlands_overlaps_tmp.shp \
   -sql "SELECT
-         designatedlands_overlaps_id as dl_ol_id,
+         designations_overlapping_id as dl_ol_id,
          designation as designat,
-         designation_id as des_id,
-         designation_name as des_name,
-         bc_boundary as bc_bound,
-         category,
+         forest_restriction as for_restr, 
+         mine_restriction as min_restr, 
+         og_restriction as og_restr,
          geom
-        FROM designatedlands_overlaps" \
-  designatedlands.gpkg \
+        FROM designations_overlapping" \
+  outputs/designatedlands.gpkg \
   -lco ENCODING=UTF-8 &&
 mapshaper-xl \
   designatedlands_overlaps_tmp.shp snap \
-  -dissolve designat,des_id,des_name,bc_bound \
-    copy-fields=category \
+  -dissolve designat \
   -explode \
   -o designatedlands_overlaps_clean.shp &&
 ls | grep -E "designatedlands_overlaps_tmp\.(shp|shx|prj|dbf|cpg)" | xargs rm
@@ -356,7 +351,7 @@ of this repository. The [`make_resources.sh`](scripts/make_resources.sh) script 
 
 ## License
 
-    Copyright 2022 Province of British Columbia
+    Copyright 2026 Province of British Columbia
 
     Licensed under the Apache License, Version 2.0 (the "License");
     you may not use this file except in compliance with the License.
