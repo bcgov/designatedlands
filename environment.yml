@@ -22,7 +22,7 @@ variables:
   PGHOST: localhost
   PGUSER: postgres
   PGPASSWORD: postgres
-  PGPORT: 5433
+  PGPORT: 5432
   PGDATABASE: designatedlands
-  DATABASE_URL: postgresql://postgres:postgres@localhost:5433/designatedlands
-  PGOGR: 'host=localhost user=postgres dbname=designatedlands password=postgres port=5433'
+  DATABASE_URL: postgresql://postgres:postgres@localhost:5432/designatedlands
+  PGOGR: 'host=localhost user=postgres dbname=designatedlands password=postgres port=5432'

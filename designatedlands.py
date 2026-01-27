@@ -177,8 +177,26 @@ def download_non_bcgw(url, path, filename, layer=None, overwrite=False):
     parsed_url = urlparse(url)
     urlfile = os.path.basename(parsed_url.path) or ""
     _, extension = os.path.splitext(urlfile)
+    
+    # Check if URL contains archive filename in query parameters (e.g., path=.../file.zip)
+    query_str = parsed_url.query or ""
+    if not extension and "=" in query_str:
+        # Extract filename from query parameters if it contains one
+        for param in query_str.split("&"):
+            if "=" in param:
+                key, val = param.split("=", 1)
+                # URL decode the value using urllib.parse.unquote
+                from urllib.parse import unquote
+                val_decoded = unquote(val)
+                base = os.path.basename(val_decoded)
+                _, ext = os.path.splitext(base)
+                if ext in (".zip", ".tar", ".tar.gz", ".tgz", ".tar.bz2", ".tbz"):
+                    extension = ext
+                    urlfile = base
+                    break
+    
     # treat URL as "directory" if path ends with '/' or no filename/extension present
-    is_dir_url = parsed_url.path.endswith("/") or extension == ""
+    is_dir_url = parsed_url.path.endswith("/") or (extension == "" and not urlfile)
 
     target_file = None
 
@@ -715,7 +733,6 @@ class DesignatedLands(object):
                     # For peace_moberly, exclude shape_area field to avoid numeric overflow
                     select = None
                     if "peace_moberly" in source["src"].lower():
-                        import subprocess
                         cmd = ["ogrinfo", "-so", file, layer]
                         result = subprocess.run(cmd, capture_output=True, text=True)
                         lines = result.stdout.split('\n')
@@ -731,7 +748,6 @@ class DesignatedLands(object):
                         select = ",".join(fields)
                     
                     # Use ogr2ogr directly for more control over options
-                    import subprocess
                     cmd = [
                         "ogr2ogr",
                         "-f", "PostgreSQL",
@@ -742,11 +758,22 @@ class DesignatedLands(object):
                         "-lco", "SCHEMA=public"
                     ]
                     if source["query"]:
-                        cmd += ["-sql", source["query"]]
+                        # If query is just a WHERE clause (doesn't start with SELECT), wrap it
+                        query = source["query"]
+                        if not query.strip().upper().startswith("SELECT"):
+                            query = f"SELECT * FROM {layer} WHERE {query}"
+                        cmd += ["-sql", query]
                     if select:
                         cmd += ["-select", select]
+                    
+                    # For GBR SFMA, add option to explode multipolygons into separate features
+                    if "gbr_sfma" in source['src'].lower():
+                        LOG.info(f"Handling MultiPolygon geometry for {source['src']} with -explodecollections")
+                        cmd.insert(4, "-explodecollections")  # Insert after format
+                    
                     LOG.info(" ".join(cmd))
                     subprocess.run(cmd)
+
             else:
                 LOG.info(source["src"] + " already loaded.")
 
@@ -928,6 +955,37 @@ class DesignatedLands(object):
                 f"ALTER TABLE bc_boundary ADD COLUMN {restriction}_restriction integer;"
             )
 
+    def get_geometry_column(self, table_name):
+        """
+        Detect the geometry column in a table using SQL.
+        Queries PostgreSQL information schema to find geometry columns.
+        
+        Args:
+            table_name: The name of the table to check
+            
+        Returns:
+            The geometry column name, or None if not found
+        """
+        try:
+            # Query PostgreSQL system catalog for geometry/geography columns
+            sql = f"""
+            SELECT column_name 
+            FROM information_schema.columns 
+            WHERE table_name = '{table_name}' 
+            AND udt_name IN ('geometry', 'geography')
+            LIMIT 1
+            """
+            result = self.db.execute(sql)
+            rows = result.fetchall()
+            if rows:
+                geom_col = rows[0][0]
+                LOG.debug(f"Detected geometry column '{geom_col}' in table {table_name}")
+                return geom_col
+        except Exception as e:
+            LOG.debug(f"Could not detect geometry column for {table_name}: {e}")
+        
+        return None
+
     def create_designations_overlapping(self):
         """
         Create a single designatedlands table
@@ -957,6 +1015,7 @@ class DesignatedLands(object):
 
         # insert data
         for source in self.sources:
+            
             input_table = source["src"]
             if source["preprc"] in self.db.tables:
                 input_table = source["preprc"]
@@ -973,71 +1032,73 @@ class DesignatedLands(object):
                 "og_restriction": str(source["og_restriction"]),
                 "mine_restriction": str(source["mine_restriction"]),
             }
-            sql = self.db.build_query(
-                self.db.queries["create_designations_overlapping"], lookup
-            )
-            # For flathead and great_bear, since they have no geometry column, treat as province-wide designations
-            if "flathead" in source["src"].lower():
-                sql = """
-INSERT INTO designations_overlapping (
-  process_order,
-  designation,
-  source_id,
-  source_name,
-  forest_restriction,
-  og_restriction,
-  mine_restriction,
-  map_tile,
-  geom
-)
-SELECT
-  22 AS process_order,
-  'flathead'::TEXT AS designation,
-  1 AS designation_id,
-  'flathead' AS designation_name,
-  0 as forest_restriction,
-  4 as og_restriction,
-  4 as mine_restriction,
-  map_tile,
-  geom
-FROM bc_boundary
-WHERE bc_boundary = 'bc_boundary_land'
-"""
-            if "great_bear" in source["src"].lower():
-                sql = """
-INSERT INTO designations_overlapping (
-  process_order,
-  designation,
-  source_id,
-  source_name,
-  forest_restriction,
-  og_restriction,
-  mine_restriction,
-  map_tile,
-  geom
-)
-SELECT
-  39 AS process_order,
-  'great_bear_fisheries_watersheds'::TEXT AS designation,
-  1 AS designation_id,
-  'great_bear_fisheries_watersheds' AS designation_name,
-  2 as forest_restriction,
-  0 as og_restriction,
-  2 as mine_restriction,
-  map_tile,
-  geom
-FROM bc_boundary
-WHERE bc_boundary = 'bc_boundary_land'
-"""
-            if "gbr_sfma" in source["src"].lower():
-                sql = sql.replace("a.object_id", "a.objectid")
-            if "boreal_caribou" in source["src"].lower():
-                sql = sql.replace("a. AS designation_name", "'boreal_caribou_rra' AS designation_name")
-            if "peace_moberly" in source["src"].lower():
-                sql = sql.replace("a.geom", "ST_Transform(a.wkb_geometry, 3005)")
-                sql = sql.replace("a.fid", "a.ogc_fid")
-                sql = sql.replace("a. AS designation_name", "'peace_moberly_tract_petroleum_natural_gas_reserves' AS designation_name")
-            self.db.execute(sql)
+            try:
+                sql = self.db.build_query(
+                    self.db.queries["create_designations_overlapping"], lookup
+                )
+                
+                # Handle geometry column variations for different sources
+                src_lower = source["src"].lower()
+                
+                # Detect actual geometry column in the source table
+                geom_col = self.get_geometry_column(input_table)
+                if geom_col and geom_col != 'geom':
+                    # Replace geometry column references if it's not the standard 'geom'
+                    sql = sql.replace("a.geom", f"a.{geom_col}")
+                
+                # Note: bc_boundary table has its 'designation' column renamed to 'bc_boundary'
+                # so the WHERE clause should reference 'bc_boundary' not 'designation'
+                
+                # Handle specific sources with known column naming issues
+                # These sources have non-standard SRIDs that need transformation to 3005
+                import re
+                
+                # For flathead, since it has a non-standard SRID, ensure transformation to 3005
+                if "flathead" in src_lower:
+                    # Flathead has SRID 900915 and uses wkb_geometry column
+                    sql = re.sub(r'a\.wkb_geometry', 'ST_Transform(a.wkb_geometry, 3005)', sql)
+                    LOG.debug(f"Applied Flathead SRID transformation for {input_table}")
+                
+                elif "national_wildlife_area" in src_lower or "migratory_bird_sanctuary" in src_lower:
+                    # Canadian Protected Areas (processes 10, 12): shape column in SRID 102001 needs transformation to 3005
+                    # Must transform ALL references to a.shape to avoid SRID mismatch errors
+                    sql = re.sub(r'ST_Intersects\(a\.shape,', 'ST_Intersects(ST_Transform(a.shape, 3005),', sql)
+                    sql = re.sub(r'(ST_CoveredBy|ST_Intersection)\(a\.shape,', r'\1(ST_Transform(a.shape, 3005),', sql)
+                    # Also transform the result in THEN clause: "THEN a.shape" -> "THEN ST_Transform(a.shape, 3005)"
+                    sql = re.sub(r'THEN a\.shape\b', 'THEN ST_Transform(a.shape, 3005)', sql)
+                    LOG.debug(f"Applied Canadian Protected Areas SRID transformation (102001 -> 3005) for {input_table}")
+                
+                elif "gbr_sfma" in src_lower:
+                    # GBR SFMA uses wkb_geometry column with SRID 900914 needs transformation to 3005
+                    sql = re.sub(r'a\.wkb_geometry', 'ST_Transform(a.wkb_geometry, 3005)', sql)
+                    LOG.debug(f"Applied GBR SFMA SRID transformation for {input_table}")
+                
+                elif "great_bear_grizzly" in src_lower or "great_bear_ebm" in src_lower or "great_bear_fisheries" in src_lower:
+                    # Great Bear GDB sources: shape column in SRID 900914/900916 needs transformation to 3005
+                    # Must transform ALL references to a.shape to avoid SRID mismatch errors
+                    sql = re.sub(r'ST_Intersects\(a\.shape,', 'ST_Intersects(ST_Transform(a.shape, 3005),', sql)
+                    sql = re.sub(r'(ST_CoveredBy|ST_Intersection)\(a\.shape,', r'\1(ST_Transform(a.shape, 3005),', sql)
+                    # Also transform the result in THEN clause: "THEN a.shape" -> "THEN ST_Transform(a.shape, 3005)"
+                    sql = re.sub(r'THEN a\.shape\b', 'THEN ST_Transform(a.shape, 3005)', sql)
+                    LOG.debug(f"Applied Great Bear GDB SRID transformation for {input_table}")
+                    
+                elif "boreal_caribou" in src_lower:
+                    # Boreal Caribou RRA: transform SRID (wkb_geometry column with SRID 900916 needs transformation to 3005)
+                    sql = re.sub(r'a\.wkb_geometry', 'ST_Transform(a.wkb_geometry, 3005)', sql)
+                    LOG.debug(f"Applied Boreal Caribou SRID transformation for {input_table}")
+                    
+                elif "peace_moberly" in src_lower:
+                    # Peace-Moberly: transform SRID (wkb_geometry column with SRID 900916 needs transformation to 3005)
+                    sql = re.sub(r'a\.wkb_geometry', 'ST_Transform(a.wkb_geometry, 3005)', sql)
+                    LOG.debug(f"Applied Peace-Moberly SRID transformation for {input_table}")
+                
+                self.db.execute(sql)
+                LOG.info(f"Successfully inserted data from {input_table} into designations_overlapping")
+                
+            except Exception as e:
+                LOG.error(f"Error processing {input_table} for {source['src']}: {e}")
+                # Log the error but continue with next source
+                continue
         self.db.execute("CREATE INDEX ON designations_overlapping USING GIST (geom)")
 
     def create_designations_planarized(self):
@@ -1155,96 +1216,171 @@ WHERE bc_boundary = 'bc_boundary_land'
             subprocess.run(command)
 
     def overlay_rasters(self):
-        """Overlay raster designations to remove overlaps
+        """Overlay raster designations to remove overlaps using chunk-based processing
+        Prioritize memory efficiency over I/O: process one chunk at a time, write immediately
         """
+        import gc
+        
         LOG.info("Overlaying rasters")
-        LOG.info("- initializing output arrays")
-        # initialize output rasters with BC boundary
-        designation = rasterio.open("rasters/dl_0.tif").read(1)
-        forest_restriction = designation.copy()
-        og_restriction = designation.copy()
-        mine_restriction = designation.copy()
-
-        # loop backwards through designations
-        for source in sorted(
+        
+        # Get raster dimensions
+        with rasterio.open("rasters/dl_0.tif") as src:
+            height = src.height
+            width = src.width
+            profile = src.profile.copy()
+        
+        # Define chunk size - smaller chunks for memory efficiency
+        chunk_height = 5000  # Process 5000 rows at a time (~745 MB per uint8 array)
+        
+        LOG.info(f"- processing {height}x{width} raster in chunks of {chunk_height} rows")
+        
+        # Get list of sources to process
+        sources_list = sorted(
             list(
                 set(
                     [
                         (
                             int(s["process_order"]),
-                            s["forest_restriction"],
-                            s["og_restriction"],
-                            s["mine_restriction"],
+                            int(s["forest_restriction"]),
+                            int(s["og_restriction"]),
+                            int(s["mine_restriction"]),
                         )
                         for s in self.sources
                     ]
                 )
             ),
             key=lambda x: (-x[0]),
-        ):
-            # unpack the values into individual variables
-            (
-                process_order_val,
-                forest_restriction_val,
-                og_restriction_val,
-                mine_restriction_val,
-            ) = source
-            LOG.info("- loading process_order n" + str(process_order_val))
-            B = rasterio.open(f"rasters/dl_{process_order_val}.tif").read(1)
-
-            # create index array pointing to cells we want to tag
-            # (in BC, and with current process_order number)
-            LOG.info("- creating index array")
-            index_array = np.where(
-                (designation >= 0) & (designation != 255) & (B == process_order_val),
-                True,
-                False,
-            )
-
-            LOG.info("- assigning output values")
-
-            # update designations, they are already ordered
-            designation[index_array] = process_order_val
-
-            # update restrictions only if new restriction is more restrictive (higher value)
-            # this works but there is likely a faster / less resource intensive way to do this?
-            restriction_index = np.where(
-                (index_array == 1) & (forest_restriction < forest_restriction_val)
-            )
-            forest_restriction[restriction_index] = forest_restriction_val
-            restriction_index = np.where(
-                (index_array == 1) & (og_restriction < og_restriction_val)
-            )
-            og_restriction[restriction_index] = og_restriction_val
-            restriction_index = np.where(
-                (index_array == 1) & (mine_restriction < mine_restriction_val)
-            )
-            mine_restriction[restriction_index] = mine_restriction_val
-
-        # define name of output tif for each array
-        out_rasters = [
-            (designation, "designatedlands"),
-            (forest_restriction, "forest_restriction"),
-            (og_restriction, "og_restriction"),
-            (mine_restriction, "mine_restriction"),
-        ]
-        # write output rasters to disk
+        )
+        
+        # Create output files for writing
         Path(self.config["out_path"]).mkdir(parents=True, exist_ok=True)
-        for out_raster in out_rasters:
-            LOG.info("- writing output raster %s" % out_raster[1])
-            with rasterio.open(
-                os.path.join(self.config["out_path"], out_raster[1] + ".tif"),
+        
+        output_files = {
+            "designatedlands": rasterio.open(
+                os.path.join(self.config["out_path"], "designatedlands.tif"),
                 "w",
                 driver="GTiff",
                 dtype="uint8",
                 count=1,
-                width=self.raster_profile["width"],
-                height=self.raster_profile["height"],
+                width=width,
+                height=height,
                 crs="EPSG:3005",
-                transform=self.raster_profile["transform"],
+                transform=profile["transform"],
                 nodata=255,
-            ) as dst:
-                dst.write(out_raster[0], indexes=1)
+                compress="deflate",
+            ),
+            "forest_restriction": rasterio.open(
+                os.path.join(self.config["out_path"], "forest_restriction.tif"),
+                "w",
+                driver="GTiff",
+                dtype="uint8",
+                count=1,
+                width=width,
+                height=height,
+                crs="EPSG:3005",
+                transform=profile["transform"],
+                nodata=255,
+                compress="deflate",
+            ),
+            "og_restriction": rasterio.open(
+                os.path.join(self.config["out_path"], "og_restriction.tif"),
+                "w",
+                driver="GTiff",
+                dtype="uint8",
+                count=1,
+                width=width,
+                height=height,
+                crs="EPSG:3005",
+                transform=profile["transform"],
+                nodata=255,
+                compress="deflate",
+            ),
+            "mine_restriction": rasterio.open(
+                os.path.join(self.config["out_path"], "mine_restriction.tif"),
+                "w",
+                driver="GTiff",
+                dtype="uint8",
+                count=1,
+                width=width,
+                height=height,
+                crs="EPSG:3005",
+                transform=profile["transform"],
+                nodata=255,
+                compress="deflate",
+            ),
+        }
+        
+        # Pre-calculate chunk ranges
+        chunk_ranges = [(i, min(i + chunk_height, height)) for i in range(0, height, chunk_height)]
+        total_chunks = len(chunk_ranges)
+        
+        try:
+            # MEMORY-OPTIMIZED: Process one chunk at a time, write immediately, then discard
+            # Chunks outer loop, sources inner loop
+            for chunk_idx, (chunk_start, chunk_end) in enumerate(chunk_ranges):
+                chunk_rows = chunk_end - chunk_start
+                
+                LOG.info(f"- processing chunk {chunk_idx + 1}/{total_chunks} (rows {chunk_start}-{chunk_end})")
+                
+                # Initialize chunk arrays from BC boundary (dl_0)
+                with rasterio.open("rasters/dl_0.tif") as src:
+                    bc_chunk = src.read(1, window=rasterio.windows.Window(0, chunk_start, width, chunk_rows)).astype('uint8')
+                
+                designation_chunk = bc_chunk.copy()
+                # Initialize restriction chunks to 0 (NONE) instead of copying BC boundary values
+                # Restrictions and designations are different - restrictions should start at NONE
+                forest_chunk = np.zeros_like(bc_chunk)
+                og_chunk = np.zeros_like(bc_chunk)
+                mine_chunk = np.zeros_like(bc_chunk)
+                del bc_chunk
+                
+                # Process all sources for this chunk
+                for source_idx, source in enumerate(sources_list):
+                    (
+                        process_order_val,
+                        forest_restriction_val,
+                        og_restriction_val,
+                        mine_restriction_val,
+                    ) = source
+                    
+                    # Open source raster, read this chunk, then close
+                    with rasterio.open(f"rasters/dl_{process_order_val}.tif") as src:
+                        B_chunk = src.read(1, window=rasterio.windows.Window(0, chunk_start, width, chunk_rows)).astype('uint8')
+                    
+                    # Update cells where B_chunk has this source's value
+                    mask = B_chunk == process_order_val
+                    
+                    # Update designation for matching cells
+                    designation_chunk[mask] = process_order_val
+                    
+                    # Update restrictions only where they should be more restrictive
+                    if forest_restriction_val > 0:
+                        forest_chunk[mask & (forest_chunk < forest_restriction_val)] = forest_restriction_val
+                    if og_restriction_val > 0:
+                        og_chunk[mask & (og_chunk < og_restriction_val)] = og_restriction_val
+                    if mine_restriction_val > 0:
+                        mine_chunk[mask & (mine_chunk < mine_restriction_val)] = mine_restriction_val
+                    
+                    del B_chunk, mask
+                
+                # Write this chunk to output files
+                output_files["designatedlands"].write(designation_chunk, indexes=1, window=rasterio.windows.Window(0, chunk_start, width, chunk_rows))
+                output_files["forest_restriction"].write(forest_chunk, indexes=1, window=rasterio.windows.Window(0, chunk_start, width, chunk_rows))
+                output_files["og_restriction"].write(og_chunk, indexes=1, window=rasterio.windows.Window(0, chunk_start, width, chunk_rows))
+                output_files["mine_restriction"].write(mine_chunk, indexes=1, window=rasterio.windows.Window(0, chunk_start, width, chunk_rows))
+                
+                # Clean up chunk arrays immediately
+                del designation_chunk, forest_chunk, og_chunk, mine_chunk
+                gc.collect()
+                LOG.info(f"- chunk {chunk_idx + 1}/{total_chunks} completed and memory freed")
+            
+            LOG.info("- overlay processing completed successfully")
+        
+        finally:
+            # Close all output files
+            for f in output_files.values():
+                f.close()
+            gc.collect()
 
         # create rats
         # flip the restriction lookup so it is {int: string}
@@ -1436,8 +1572,18 @@ def process_vector(config_file, verbose, quiet):
     """Create vector designation/restriction layers"""
     set_log_level(verbose, quiet)
     DL = DesignatedLands(config_file)
-    DL.create_designations_overlapping()
-    DL.create_designations_planarized()
+    try:
+        DL.create_designations_overlapping()
+        LOG.info("designations_overlapping created successfully")
+    except Exception as e:
+        LOG.error(f"Error creating designations_overlapping: {e}", exc_info=True)
+        raise
+    try:
+        DL.create_designations_planarized()
+        LOG.info("designations_planarized created successfully")
+    except Exception as e:
+        LOG.error(f"Error creating designations_planarized: {e}", exc_info=True)
+        raise
 
 
 @cli.command()
@@ -1466,41 +1612,48 @@ def dump(config_file, verbose, quiet):
     out_file = Path(DL.config["out_path"]) / "designatedlands.gpkg"
     if out_file.exists():
         out_file.unlink()
-    DL.db.pg2ogr(
-        f"""SELECT designations_planarized_id,
-          array_to_string(designation,';') as designations,
-          array_to_string(source_id,';') as source_ids,
-          array_to_string(source_name,';') as source_names,
-          array_to_string(forest_restrictions,';') as forest_restrictions,
-          array_to_string(mine_restrictions,';') as mine_restrictions,
-          array_to_string(og_restrictions,';') as og_restrictions,
-          forest_restriction_max,
-          mine_restriction_max,
-          og_restriction_max,
-          map_tile,
-          geom
-          FROM designations_planarized""",
-        "GPKG",
-        str(out_file),
-        "designations_planarized",
-        geom_type="POLYGON",
-    )
-    DL.db.pg2ogr(
-        f"""SELECT designations_overlapping_id,
-          designation,
-          source_id,
-          source_name,
-          forest_restriction,
-          mine_restriction,
-          og_restriction,
-          map_tile,
-          geom
-          FROM designations_overlapping""",
-        "GPKG",
-        str(out_file),
-        "designations_overlapping",
-        geom_type="POLYGON",
-    )
+    
+    # Use ogr2ogr directly with subprocess for fresh database connections
+    # This ensures we see committed data from other connections
+    
+    try:
+        # Try to dump designations_overlapping
+        LOG.info("Attempting to dump designations_overlapping...")
+        cmd = [
+            "ogr2ogr",
+            "-f", "GPKG",
+            str(out_file),
+            "-nln", "designations_overlapping",
+            DL.db.ogr_string,
+            "-sql", "SELECT designations_overlapping_id, designation, source_id, source_name, forest_restriction, mine_restriction, og_restriction, map_tile, geom FROM public.designations_overlapping"
+        ]
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        if result.returncode == 0:
+            LOG.info("designations_overlapping dumped successfully")
+        else:
+            LOG.warning(f"designations_overlapping dump failed: {result.stderr}")
+    except Exception as e:
+        LOG.warning(f"Error dumping designations_overlapping: {e}")
+    
+    try:
+        # Try to dump designations_planarized
+        LOG.info("Attempting to dump designations_planarized...")
+        cmd = [
+            "ogr2ogr",
+            "-f", "GPKG",
+            "-append",
+            str(out_file),
+            "-nln", "designations_planarized",
+            DL.db.ogr_string,
+            "-sql", "SELECT designations_planarized_id, array_to_string(designation,';') as designations, array_to_string(source_id,';') as source_ids, array_to_string(source_name,';') as source_names, array_to_string(forest_restrictions,';') as forest_restrictions, array_to_string(mine_restrictions,';') as mine_restrictions, array_to_string(og_restrictions,';') as og_restrictions, forest_restriction_max, mine_restriction_max, og_restriction_max, map_tile, geom FROM public.designations_planarized"
+        ]
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        if result.returncode == 0:
+            LOG.info("designations_planarized dumped successfully")
+        else:
+            LOG.warning(f"designations_planarized dump failed: {result.stderr}")
+    except Exception as e:
+        LOG.warning(f"Error dumping designations_planarized: {e}")
 
 
 @cli.command()
@@ -1528,25 +1681,27 @@ def overlay(in_file, out_file, config_file, in_layer, out_layer, verbose, quiet)
     overlay_layer = new_layer_name[:50] + "_overlay"
 
     # drop the tables if they exist
-    DL.db.execute(f"DROP TABLE IF EXISTS {new_layer_name}")
-    DL.db.execute(f"DROP TABLE IF EXISTS {overlay_layer}")
+    DL.db.execute(f"DROP TABLE IF EXISTS designatedlands.{new_layer_name}")
+    DL.db.execute(f"DROP TABLE IF EXISTS designatedlands.{overlay_layer}")
 
-    # load input layer to postgres
+    # load input layer to postgres to public schema (intersect expects tables in public schema)
     DL.db.ogr2pg(
-        in_file, in_layer=in_layer, out_layer=new_layer_name, schema="designatedlands"
+        in_file, in_layer=in_layer, out_layer=new_layer_name, schema="public"
     )
 
     # pull distinct tiles iterable into a list
-    tiles = [t for t in DL.db["tiles"].distinct("map_tile")]
+    # use direct SQL query to avoid stale table reference issues
+    tiles = DL.db.query("SELECT DISTINCT map_tile FROM tiles ORDER BY map_tile").fetchall()
+    tiles = [t[0] for t in tiles]
 
-    # run the overlay
+    # run the overlay - intersect designations_planarized with the input layer
     DL.intersect(
-        "designatedlands", new_layer_name, overlay_layer, tiles,
+        "designations_planarized", new_layer_name, "designatedlands." + overlay_layer, tiles,
     )
 
     # dump overlay table to file
     DL.db.pg2ogr(
-        f"SELECT * FROM {overlay_layer}",
+        f"SELECT * FROM designatedlands.{overlay_layer}",
         "GPKG",
         str(out_file),
         out_layer,
